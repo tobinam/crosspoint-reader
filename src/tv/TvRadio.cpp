@@ -21,11 +21,6 @@ constexpr char RX[] = "a7c40002-3f1e-4b8e-9d52-6e0b2c8f4a10";
 constexpr char TX[] = "a7c40003-3f1e-4b8e-9d52-6e0b2c8f4a10";
 constexpr char REMOTE_NAME[] = "X4 Remote";
 constexpr char KEYBOARD_NAME[] = "X4 Keyboard";
-// The bridge's adapter (tix's hci0 under the old dongle's address, sai: SPEEDDIAL_SPEC.md "TV remote"). Anyone
-// else is disconnected in remote mode. Empty: anyone may connect.
-#ifndef XTEINK_TV_BRIDGE_ADDR
-#define XTEINK_TV_BRIDGE_ADDR "8c:88:1b:67:40:34"
-#endif
 constexpr uint16_t WANT_MTU = 247;
 constexpr size_t INBOX = 6;  // messages waiting for the main loop; more: the oldest is dropped
 
@@ -80,6 +75,14 @@ struct State {
   NimBLECharacteristic* keys = nullptr;
   NimBLECharacteristic* consumer = nullptr;
   std::unique_ptr<NimBLEHIDDevice> hid;
+  // Remote mode admits only bridges paired here (LE Secure Connections, bonded): their identity addresses, kept by
+  // the activity in /.crosspoint/tv_bridges. A bond from keyboard mode (the TV) is not one of them.
+  char bridges[MAX_BRIDGES][18]{};
+  std::atomic<uint8_t> bridgeCount{0};
+  std::atomic<uint32_t> pairUntil{0};       // millis() until which a new bridge may pair; 0: closed
+  std::atomic<bool> trusted{false};         // the link is encrypted and bonded with a known bridge
+  std::atomic<uint32_t> connectedAt{0};
+  std::atomic<bool> bridgesChanged{false};  // a bridge paired: the activity saves the list
   Joiner<TO_X4_MAX> joiner;  // used on NimBLE's task only
   Chunker chunker;           // main loop only
   char inbox[INBOX][TO_X4_MAX + 1]{};
@@ -91,53 +94,86 @@ struct Guard {
   ~Guard() { xSemaphoreGive(S->lock); }
 };
 
-bool allowed(const NimBLEConnInfo& info) {
-  const char* want = XTEINK_TV_BRIDGE_ADDR;  // comma-separated, lowercase
-  if (!*want) return true;
-  std::string got = info.getIdAddress().toString();
-  for (auto& c : got) c = static_cast<char>(tolower(c));
-  for (const char* p = want; *p;) {
-    const char* end = std::strchr(p, ',');
-    const size_t n = end ? static_cast<size_t>(end - p) : std::strlen(p);
-    if (n == got.size() && !std::strncmp(p, got.c_str(), n)) return true;
-    p += n + (end ? 1 : 0);
-  }
+std::string idOf(const NimBLEConnInfo& info) {
+  std::string a = info.getIdAddress().toString();
+  for (auto& c : a) c = static_cast<char>(tolower(c));
+  return a;
+}
+
+bool knownBridge(const std::string& id) {
+  for (uint8_t i = 0; i < S->bridgeCount; ++i)
+    if (id == S->bridges[i]) return true;
   return false;
+}
+
+bool pairingOpen() {
+  const uint32_t until = S->pairUntil;
+  return until && static_cast<int32_t>(until - millis()) > 0;
 }
 
 class ServerEvents : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* server, NimBLEConnInfo& info) override {
-    if (S->mode == Mode::Remote && !allowed(info)) {
-      LOG_INF("TV", "refused %s", info.getIdAddress().toString().c_str());
+    // Remote mode: a known bridge (it must still encrypt with its bond), or anyone while pairing is open.
+    // The identity address of a stranger using a resolvable address is unknown until pairing: only the window helps.
+    if (S->mode == Mode::Remote && !knownBridge(idOf(info)) && !pairingOpen()) {
+      LOG_INF("TV", "refused %s (not a paired bridge)", idOf(info).c_str());
       server->disconnect(info);
       return;
     }
     S->conn = info.getConnHandle();
     S->mtu = info.getMTU();
+    S->trusted = false;
     {
       Guard g;
       S->joiner.reset();
       S->count = 0;
     }
+    S->connectedAt = millis();
     S->connected = true;
     S->linkChanged = true;
-    LOG_INF("TV", "connected %s", info.getIdAddress().toString().c_str());
+    LOG_INF("TV", "connected %s", idOf(info).c_str());
+    if (S->mode == Mode::Remote) NimBLEDevice::startSecurity(info.getConnHandle());  // encrypt or pair now
   }
   void onDisconnect(NimBLEServer*, NimBLEConnInfo& info, int reason) override {
     if (info.getConnHandle() != S->conn) return;
     S->conn = BLE_HS_CONN_HANDLE_NONE;
     S->connected = false;
+    S->trusted = false;
     S->linkChanged = true;
     LOG_INF("TV", "disconnected (%d)", reason);  // advertising restarts by itself (advertiseOnDisconnect)
   }
   void onMTUChange(uint16_t mtu, NimBLEConnInfo& info) override {
     if (info.getConnHandle() == S->conn) S->mtu = mtu;
   }
+  void onAuthenticationComplete(NimBLEConnInfo& info) override {
+    if (info.getConnHandle() != S->conn || S->mode != Mode::Remote) return;
+    const std::string id = idOf(info);
+    if (!info.isEncrypted() || !info.isBonded()) {
+      LOG_INF("TV", "%s did not pair/encrypt: dropped", id.c_str());
+      NimBLEDevice::getServer()->disconnect(info);
+      return;
+    }
+    if (!knownBridge(id)) {
+      if (!pairingOpen() || S->bridgeCount >= MAX_BRIDGES) {
+        LOG_INF("TV", "%s bonded outside the pairing window: dropped", id.c_str());
+        NimBLEDevice::deleteBond(info.getIdAddress());
+        NimBLEDevice::getServer()->disconnect(info);
+        return;
+      }
+      std::strncpy(S->bridges[S->bridgeCount], id.c_str(), sizeof(S->bridges[0]) - 1);
+      ++S->bridgeCount;
+      S->pairUntil = 0;  // one bridge per window
+      S->bridgesChanged = true;
+      LOG_INF("TV", "paired bridge %s", id.c_str());
+    }
+    S->trusted = true;
+    S->linkChanged = true;
+  }
 };
 
 class RxEvents : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& info) override {
-    if (info.getConnHandle() != S->conn) return;
+    if (info.getConnHandle() != S->conn || !S->trusted) return;
     const auto value = c->getValue();
     Guard g;
     if (!S->joiner.push(value.data(), value.size())) return;
@@ -165,9 +201,13 @@ void keyboardAddress() {
 }
 
 bool startRemote(NimBLEServer* server) {
-  NimBLEDevice::setSecurityAuth(false, false, false);
+  // Bonded LE Secure Connections, Just Works (tix has no screen): the link is encrypted by the radio; who may pair
+  // is limited by the pairing window the user opens.
+  NimBLEDevice::setSecurityAuth(true, false, true);
+  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
   auto* service = server->createService(SERVICE);
-  auto* rx = service->createCharacteristic(RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+  auto* rx = service->createCharacteristic(
+      RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC);
   rx->setCallbacks(&rxEvents);
   S->tx = service->createCharacteristic(TX, NIMBLE_PROPERTY::NOTIFY);
   server->start();
@@ -270,7 +310,59 @@ void Radio::stop() {
 
 bool Radio::running() const { return S && S->running; }
 Mode Radio::mode() const { return S ? S->mode : Mode::Remote; }
-bool Radio::connected() const { return S && S->connected; }
+bool Radio::connected() const {
+  return S && S->connected && (S->mode == Mode::Keyboard || S->trusted);  // remote: only a paired bridge counts
+}
+
+void Radio::setBridges(const char* const* ids, const size_t count) {
+  if (!S) return;
+  const size_t n = count < MAX_BRIDGES ? count : MAX_BRIDGES;
+  for (size_t i = 0; i < n; ++i) {
+    std::strncpy(S->bridges[i], ids[i], sizeof(S->bridges[0]) - 1);
+    S->bridges[i][sizeof(S->bridges[0]) - 1] = 0;
+  }
+  S->bridgeCount = static_cast<uint8_t>(n);
+}
+
+size_t Radio::bridges(char (*out)[18], const size_t max) const {
+  if (!S) return 0;
+  const size_t count = S->bridgeCount;
+  const size_t n = count < max ? count : max;
+  for (size_t i = 0; i < n; ++i) std::memcpy(out[i], S->bridges[i], 18);
+  return n;
+}
+
+void Radio::tick() {
+  // Remote mode: a link that is not encrypted with a paired bridge within SECURE_MS is dropped (a stranger, or a
+  // faked bridge address without its key, would otherwise hold the only connection).
+  constexpr uint32_t SECURE_MS = 10000;
+  if (!S || !S->running || S->mode != Mode::Remote || !S->connected || S->trusted) return;
+  if (millis() - S->connectedAt < SECURE_MS) return;
+  const uint16_t c = S->conn;
+  LOG_INF("TV", "link not secured in %u ms: dropped", static_cast<unsigned>(SECURE_MS));
+  if (c != BLE_HS_CONN_HANDLE_NONE) NimBLEDevice::getServer()->disconnect(c);
+  S->connectedAt = millis();  // once per SECURE_MS until the disconnect lands
+}
+
+bool Radio::takeBridgesChanged() { return S && S->bridgesChanged.exchange(false); }
+
+void Radio::openPairing(const uint32_t ms) {
+  if (S) S->pairUntil = (millis() + ms) | 1;
+}
+
+uint32_t Radio::pairingLeftMs() const {
+  if (!S || !pairingOpen()) return 0;
+  return S->pairUntil - millis();
+}
+
+void Radio::forgetBridges() {
+  if (!S) return;
+  for (uint8_t i = 0; i < S->bridgeCount; ++i) NimBLEDevice::deleteBond(NimBLEAddress(S->bridges[i], BLE_ADDR_PUBLIC));
+  S->bridgeCount = 0;
+  S->bridgesChanged = true;
+  const uint16_t c = S->conn;
+  if (S->mode == Mode::Remote && c != BLE_HS_CONN_HANDLE_NONE) NimBLEDevice::getServer()->disconnect(c);
+}
 bool Radio::takeLinkChanged() { return S && S->linkChanged.exchange(false); }
 
 bool Radio::takeMessage(char* out, const size_t outSize) {
@@ -285,7 +377,7 @@ bool Radio::takeMessage(char* out, const size_t outSize) {
 }
 
 bool Radio::send(const char* json, const size_t length) {
-  if (!S || !S->running || S->mode != Mode::Remote || !S->connected || !S->tx || length > FROM_X4_MAX) return false;
+  if (!S || !S->running || S->mode != Mode::Remote || !S->trusted || !S->tx || length > FROM_X4_MAX) return false;
   const uint16_t conn = S->conn;
   const size_t room = S->mtu > 3 ? S->mtu - 3 : 20;
   return S->chunker.split(json, length, room, [conn](const uint8_t* data, size_t size) {

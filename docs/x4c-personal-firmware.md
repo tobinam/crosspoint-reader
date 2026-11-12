@@ -398,10 +398,12 @@ the bridge reports it), TV home screen, D-pad, Playback and volume, the clip gro
 HID keyboard "X4 Keyboard" under its own static random address, meant to be paired
 with the TV directly. The choice is kept in `/.crosspoint/tv_mode`.
 
-Only the bridge's adapter (`XTEINK_TV_BRIDGE_ADDR`, comma list, default tix
-`8c:88:1b:67:40:34`) may stay connected. The x4c profile lifts the page turner's
-`CONFIG_BT_NIMBLE_ROLE_PERIPHERAL/BROADCASTER_DISABLED` (the prebuilt core has every
-role). The page turner uses NimBLE only while a book is open, so the two never
+Remote mode admits only paired bridges: bonded LE Secure Connections (Just Works), the link encrypted by the
+radio. "Pair a bridge (60 s)" opens a window in which one new bridge may pair. Paired bridges are kept in
+`/.crosspoint/tv_bridges`, and "Forget paired bridges" removes them and their bonds. A link that is not secured within
+10 s is dropped. Keyboard-mode bonds (the TV) never count as bridges. The x4c profile lifts the page turner's
+`CONFIG_BT_NIMBLE_ROLE_PERIPHERAL/BROADCASTER_DISABLED` (the prebuilt core has every role).
+The page turner uses NimBLE only while a book is open, so the two never
 overlap. Static RAM 116,220 bytes, flash about 5.53 MB. Starting the radio takes
 about 41 KB of internal heap.
 

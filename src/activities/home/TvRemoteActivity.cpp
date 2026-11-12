@@ -16,6 +16,8 @@ using Button = MappedInputManager::Button;
 
 namespace {
 constexpr char MODE_FILE[] = "/.crosspoint/tv_mode";
+constexpr char BRIDGES_FILE[] = "/.crosspoint/tv_bridges";  // paired bridges' identity addresses, one per line
+constexpr uint32_t PAIR_WINDOW_MS = 60000;
 constexpr unsigned long HOLD_MS = 600;
 
 void copy(char* out, size_t size, const char* in) {
@@ -40,6 +42,28 @@ void TvRemoteActivity::saveMode() const {
   Storage.writeFile(MODE_FILE, mode == tv::Mode::Keyboard ? "keyboard" : "remote");
 }
 
+void TvRemoteActivity::loadBridges() {
+  char text[tv::MAX_BRIDGES * 18 + 8] = "";
+  Storage.readFileToBuffer(BRIDGES_FILE, text, sizeof(text));
+  const char* ids[tv::MAX_BRIDGES];
+  size_t n = 0;
+  for (char* line = std::strtok(text, "\r\n"); line && n < tv::MAX_BRIDGES; line = std::strtok(nullptr, "\r\n"))
+    if (std::strlen(line) == 17) ids[n++] = line;
+  tv::radio().setBridges(ids, n);
+}
+
+void TvRemoteActivity::saveBridges() {
+  char ids[tv::MAX_BRIDGES][18];
+  const size_t n = tv::radio().bridges(ids, tv::MAX_BRIDGES);
+  String text;
+  for (size_t i = 0; i < n; ++i) {
+    text += ids[i];
+    text += "\n";
+  }
+  Storage.ensureDirectoryExists("/.crosspoint");
+  Storage.writeFile(BRIDGES_FILE, text);
+}
+
 void TvRemoteActivity::resetLists() {
   hello = false;
   groupCount = groupsLoaded = 0;
@@ -53,6 +77,7 @@ void TvRemoteActivity::resetLists() {
 void TvRemoteActivity::startRadio() {
   resetLists();
   radioFailed = !tv::radio().start(mode);
+  if (!radioFailed) loadBridges();
 }
 
 void TvRemoteActivity::switchMode() {
@@ -94,6 +119,25 @@ void TvRemoteActivity::setStatus(const char* text) { copy(status, sizeof(status)
 
 void TvRemoteActivity::pollRadio() {
   auto& r = tv::radio();
+  r.tick();
+  if (r.takeBridgesChanged()) {
+    saveBridges();
+    char ids[tv::MAX_BRIDGES][18];
+    const size_t n = r.bridges(ids, tv::MAX_BRIDGES);
+    if (n) {
+      char line[sizeof(status)];
+      std::snprintf(line, sizeof(line), tr(STR_TV_PAIRED), ids[n - 1]);  // the newest: check it is yours
+      setStatus(line);
+    } else {
+      status[0] = 0;
+    }
+    requestUpdate();
+  }
+  const uint32_t pairSecs = (r.pairingLeftMs() + 9999) / 10000 * 10;  // redraw every 10 s, not every second
+  if (pairSecs != lastPairSecs) {
+    lastPairSecs = pairSecs;
+    requestUpdate();
+  }
   if (r.takeLinkChanged()) {
     RenderLock lock(*this);
     if (!r.connected()) {
@@ -287,7 +331,7 @@ void TvRemoteActivity::onBackButton() { leaveView(); }
 int TvRemoteActivity::listCount() const {
   switch (view) {
     case View::Menu:
-      return FIXED_ROWS + (mode == tv::Mode::Remote ? groupsLoaded : 0) + 1;
+      return FIXED_ROWS + (mode == tv::Mode::Remote ? groupsLoaded + 3 : 1);  // remote: mode, pair, forget
     case View::Clips:
       return 1 + clipsLoaded;
     default:
@@ -309,7 +353,8 @@ TvRemoteActivity::Row TvRemoteActivity::rowKind(const int index, int* item) cons
     if (item) *item = index - FIXED_ROWS;
     return Row::Group;
   }
-  return Row::Mode;
+  const int after = index - FIXED_ROWS - groupsShown;
+  return after == 1 ? Row::Pair : after == 2 ? Row::Forget : Row::Mode;
 }
 
 void TvRemoteActivity::provideRow(void* context, const uint16_t index, fui::ListItem& item) {
@@ -336,6 +381,12 @@ void TvRemoteActivity::provideRow(void* context, const uint16_t index, fui::List
       break;
     case Row::Mode:
       item.label = self.mode == tv::Mode::Remote ? tr(STR_TV_KEYBOARD_MODE) : tr(STR_TV_REMOTE_MODE);
+      break;
+    case Row::Pair:
+      item.label = tr(STR_TV_PAIR_BRIDGE);
+      break;
+    case Row::Forget:
+      item.label = tr(STR_TV_FORGET_BRIDGES);
       break;
     case Row::PlayAll:
       item.label = tr(STR_TV_PLAY_ALL);
@@ -387,6 +438,14 @@ void TvRemoteActivity::activateIndex(const int index) {
     case Row::Mode:
       switchMode();
       return;
+    case Row::Pair:
+      tv::radio().openPairing(PAIR_WINDOW_MS);
+      requestUpdate();
+      return;
+    case Row::Forget:
+      tv::radio().forgetBridges();  // saved by pollRadio (bridgesChanged)
+      requestUpdate();
+      return;
     case Row::PlayAll:
       play(openGroup, -1);
       return;
@@ -423,8 +482,11 @@ void TvRemoteActivity::buildScreen(UiScreen& screen) {
     copy(line, sizeof(line), tr(STR_TV_NO_RADIO));
   } else if (mode == tv::Mode::Keyboard) {
     copy(line, sizeof(line), r.connected() ? tr(STR_TV_KEYBOARD_CONNECTED) : tr(STR_TV_PAIR_HINT));
+  } else if (const uint32_t left = r.pairingLeftMs()) {
+    std::snprintf(line, sizeof(line), tr(STR_TV_PAIRING_OPEN), static_cast<unsigned>((left + 999) / 1000));
   } else if (!r.connected()) {
-    copy(line, sizeof(line), tr(STR_TV_WAITING));
+    char ids[1][18];
+    copy(line, sizeof(line), r.bridges(ids, 1) ? tr(STR_TV_WAITING) : tr(STR_TV_NO_BRIDGE));
   } else if (!online) {
     copy(line, sizeof(line), tr(STR_TV_OFFLINE));
   } else {

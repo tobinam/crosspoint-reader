@@ -14,7 +14,7 @@ class TvRemoteActivity final : public UiListActivity {
   static constexpr size_t NAME = 49;
   static constexpr int FIXED_ROWS = 4;  // power, home, pad, playback  // the bridge's 48 bytes + NUL
   enum class View : uint8_t { Menu, Clips, Pad, Playback };
-  enum class Row : uint8_t { Power, Home, Pad, Playback, Group, Mode, PlayAll, Clip };
+  enum class Row : uint8_t { Power, Home, Pad, Playback, Group, Mode, Pair, Forget, PlayAll, Clip };
   struct Name {
     char text[NAME]{};
   };
@@ -50,6 +50,9 @@ class TvRemoteActivity final : public UiListActivity {
   static void provideRow(void* context, uint16_t index, freeink::ui::ListItem& item);
   Row rowKind(int index, int* item) const;
   void loadMode();
+  void loadBridges();
+  void saveBridges();
+  uint32_t lastPairSecs = 0;  // the countdown shown, to redraw once per step
   void saveMode() const;
   void startRadio();
   void switchMode();
