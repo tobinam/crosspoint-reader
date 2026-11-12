@@ -7,6 +7,10 @@
 #include <XteinkDetect.h>
 #include <esp_sleep.h>
 
+#if FREEINK_DEVICE_X4CLASSIC && ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT
+#include <driver/usb_serial_jtag.h>
+#endif
+
 #if FREEINK_DEVICE_LILYGO
 #include <BoardT5S3.h>
 #endif
@@ -254,6 +258,14 @@ bool HalGPIO::isUsbConnected() const {
   const bool present = battery.isExternalPowerPresent(&known);
   if (known) return present;
   return battery.isCharging();
+}
+
+bool HalGPIO::isUsbHostConnected() const {
+#if FREEINK_DEVICE_X4CLASSIC && ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT
+  return usb_serial_jtag_is_connected();
+#else
+  return false;
+#endif
 }
 
 bool HalGPIO::coldBootImpliesPowerButton() const {

@@ -1,5 +1,10 @@
 # CrossPoint Reader
 
+> This working tree includes personal X4 Classic downstream changes: a six-tile
+> launcher and dock-aware sleep. See [personal firmware notes](docs/x4c-personal-firmware.md)
+> for implemented behavior, unavailable modes and verification limits. These are
+> not upstream CrossPoint features or a release-ready build.
+
 [![Fund contributors](https://img.shields.io/badge/%F0%9F%91%91_Fund_contributors-royalty.dev-BB953A?style=for-the-badge&labelColor=1a1a1a)](https://app.royalty.dev/crosspoint-reader/crosspoint-reader)
 
 CrossPoint is open-source e-reader firmware - community-built, fully hackable, free forever. It's maintained by a growing community of developers and readers who believe your device should do what you want - not what a manufacturer decided for you.

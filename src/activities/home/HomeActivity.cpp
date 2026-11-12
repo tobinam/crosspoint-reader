@@ -303,6 +303,12 @@ void HomeActivity::freeCoverBuffer() {
 }
 
 void HomeActivity::loop() {
+#if FREEINK_DEVICE_X4CLASSIC
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    activityManager.goHome();
+    return;
+  }
+#endif
   const int menuCount = getMenuItemCount();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
@@ -465,6 +471,11 @@ void HomeActivity::loop() {
 }
 
 void HomeActivity::render(RenderLock&&) {
+#if FREEINK_DEVICE_X4CLASSIC
+  const char* backLabel = tr(STR_BACK);
+#else
+  const char* backLabel = recentBooks.empty() ? "" : tr(STR_RESUME);
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -478,8 +489,7 @@ void HomeActivity::render(RenderLock&&) {
     UITheme::getInstance().drawCoverGridHome(*coverGridUi);
     // Front Left/Right walk the tabs, so their hints read Left/Right; the
     // side page buttons (unhinted) walk the covers.
-    const auto labels = mappedInput.mapLabels(hasContinueReading ? tr(STR_RESUME) : "", tr(STR_SELECT),
-                                              tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
+    const auto labels = mappedInput.mapLabels(backLabel, tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH
                                                                    : HalDisplay::FAST_REFRESH);
@@ -556,8 +566,7 @@ void HomeActivity::render(RenderLock&&) {
       [&menuItems](int index) { return std::string(menuItems[index]); },
       [&menuIcons](int index) { return menuIcons[index]; });
 
-  const auto labels = mappedInput.mapLabels(recentBooks.empty() ? "" : tr(STR_RESUME), tr(STR_SELECT), tr(STR_DIR_UP),
-                                            tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(backLabel, tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);

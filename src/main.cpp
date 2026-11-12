@@ -14,8 +14,10 @@
 #include <HalStorage.h>
 #include <HalSystem.h>
 #include <HalTiltSensor.h>
+#include <HalUsbConsole.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <SPI.h>
 #include <TrustedTime.h>
 #include <VectorFontSupport.h>
@@ -42,11 +44,18 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/home/UsbLivePageActivity.h"
+#if XTEINK_INK_STORIES
+#include "activities/home/StoriesActivity.h"
+#include "stories/StoryProgress.h"
+#include "stories/StoryUploadReceiver.h"
+#endif
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
+#include "util/DockSleepPolicy.h"
 #include "util/PluginEvents.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SlideSwitch.h"
@@ -70,6 +79,16 @@ SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts(), renderer.getTtfFonts());
 static unsigned long allowSleepAt = 0;
 static unsigned long lastX4ProPowerClickAt = 0;
+#if FREEINK_DEVICE_X4CLASSIC
+static HalUsbConsole usbConsole;
+static usbLive::Page usbLivePage;
+static usbLive::Page usbLiveCandidate;
+static bool usbLivePageActive = false;
+#if XTEINK_INK_STORIES
+static usbFile::Command usbFileCommand;
+static StoryUploadReceiver storyUpload;
+#endif
+#endif
 
 namespace {
 constexpr unsigned long X4PRO_POWER_DOUBLE_CLICK_MS = 500;
@@ -572,6 +591,10 @@ void setup() {
   // enumeration proceed asynchronously so users do not pay this startup cost.
   delay(250);
 #endif
+#if FREEINK_DEVICE_X4CLASSIC
+  // Holds one whole XT1 frame so paced hosts can send a story chunk at once.
+  logSerial.setRxBufferSize(2048);
+#endif
   Serial.begin(115200);
 #if LOG_SERIAL_HAS_TX_TIMEOUT
   logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
@@ -816,7 +839,17 @@ void setup() {
              mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
     // crashed (indicated by readerActivityLoadCount > 0)
-    activityManager.goHome(HomeMenuItem::NONE, needsWakeRefresh);
+#if XTEINK_INK_STORIES
+    // Slept inside a story: reopen it. Stories consumes the marker on entry,
+    // so a crash while reopening falls back to Home on the next boot.
+    std::unique_ptr<StoriesActivity> stories;
+    if (!mappedInputManager.isPressed(MappedInputManager::Button::Back) && storyProgress::wakeResumePending())
+      stories = makeUniqueNoThrow<StoriesActivity>(renderer, mappedInputManager);
+    if (stories)
+      activityManager.replaceActivity(std::move(stories));
+    else
+#endif
+      activityManager.goHome(HomeMenuItem::NONE, needsWakeRefresh);
   } else {
     // Clear app state to avoid getting into a boot loop if the epub doesn't load
     const auto path = APP_STATE.openEpubPath;
@@ -913,6 +946,7 @@ void loop() {
 
   // Handle incoming serial commands,
   // nb: we use logSerial from logging to avoid deprecation warnings
+#if !FREEINK_DEVICE_X4CLASSIC
   if (logSerial.available() > 0) {
     String line = logSerial.readStringUntil('\n');
     if (line.startsWith("CMD:")) {
@@ -927,6 +961,7 @@ void loop() {
       }
     }
   }
+#endif
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
@@ -1008,7 +1043,15 @@ void loop() {
   }
 
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
-  if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
+#if FREEINK_DEVICE_X4CLASSIC
+  static DockSleepPolicy dockSleepPolicy;
+  // Host-bus detection still works after charge termination; STAT alone does not.
+  const bool externallyPowered = gpio.isUsbHostConnected() || gpio.isUsbConnected();
+  const bool autoSleepDue = dockSleepPolicy.shouldSleep(millis(), lastActivityTime, sleepTimeoutMs, externallyPowered);
+#else
+  const bool autoSleepDue = sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs;
+#endif
+  if (autoSleepDue) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
     enterDeepSleep(true);
     // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
@@ -1077,6 +1120,47 @@ void loop() {
   }
 
   const unsigned long activityStartTime = millis();
+#if FREEINK_DEVICE_X4CLASSIC
+  if (const char* frame = usbConsole.pollLine()) {
+    const bool rejected = usbConsole.inputWasRejected();
+    const bool accepted = !rejected && usbLive::parse(frame, usbLiveCandidate);
+    if (!rejected && std::strcmp(frame, "CMD:SCREENSHOT") == 0) {
+      const uint32_t bufferSize = display.getBufferSize();
+      logSerial.printf("SCREENSHOT_START:%lu\n", static_cast<unsigned long>(bufferSize));
+      logSerial.write(display.getFrameBuffer(), bufferSize);
+      logSerial.print("SCREENSHOT_END\n");
+    }
+#if XTEINK_INK_STORIES
+    if (!rejected && usbFile::parse(frame, usbFileCommand)) {
+      lastActivityTime = millis();  // Keep the short loop delay while a host is pushing.
+      if (activityManager.requiresExclusiveStorageLoop())
+        usbConsole.reply(usbFileCommand.id, "BUSY", "1");
+      else
+        storyUpload.handle(usbFileCommand, usbConsole, millis());
+    }
+#endif
+    usbConsole.consumeLine();
+    if (accepted) {
+      if (usbLivePageActive || activityManager.requiresExclusiveStorageLoop()) {
+        usbConsole.reply(usbLiveCandidate.id, "BUSY", "1");
+      } else {
+        usbLivePage = usbLiveCandidate;
+        auto activity = makeUniqueNoThrow<UsbLivePageActivity>(renderer, mappedInputManager, usbLivePage, usbConsole,
+                                                               usbLivePageActive);
+        if (!activity) {
+          LOG_ERR("USB", "OOM: live page activity");
+          usbConsole.reply(usbLiveCandidate.id, "ERROR", "OOM");
+        } else {
+          usbLivePageActive = true;
+          activityManager.pushActivity(std::move(activity));
+        }
+      }
+    }
+  }
+#if XTEINK_INK_STORIES
+  storyUpload.expire(millis());
+#endif
+#endif
   activityManager.loop();
   const unsigned long activityDuration = millis() - activityStartTime;
 

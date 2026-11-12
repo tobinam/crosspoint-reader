@@ -22,6 +22,9 @@
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
+#if FREEINK_DEVICE_X4CLASSIC
+#include "home/LauncherActivity.h"
+#endif
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "network/UsbDriveActivity.h"
@@ -373,7 +376,16 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefr
       initialMenuItem = HomeMenuItem::SETTINGS_MENU;
     }
   }
+#if FREEINK_DEVICE_X4CLASSIC
+  auto launcher = makeUniqueNoThrow<LauncherActivity>(renderer, mappedInput, initialMenuItem, cleanInitialRefresh);
+  if (!launcher) {
+    LOG_ERR("ACT", "OOM: launcher (%u bytes)", static_cast<unsigned>(sizeof(LauncherActivity)));
+    return;
+  }
+  replaceActivity(std::move(launcher));
+#else
   replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem, cleanInitialRefresh));
+#endif
 }
 void ActivityManager::goToCrashReport() { replaceActivity(std::make_unique<CrashActivity>(renderer, mappedInput)); }
 
