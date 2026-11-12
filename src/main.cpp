@@ -1130,6 +1130,21 @@ void loop() {
       logSerial.write(display.getFrameBuffer(), bufferSize);
       logSerial.print("SCREENSHOT_END\n");
     }
+    // The last panic's report (written by HalSystem::checkPanic), read-only, for a host on USB.
+    if (!rejected && std::strcmp(frame, "CMD:CRASHLOG") == 0 && !activityManager.requiresExclusiveStorageLoop()) {
+      auto file = Storage.open("/crash_report.txt", O_RDONLY);
+      const uint32_t size = file ? static_cast<uint32_t>(file.size()) : 0;
+      logSerial.printf("CRASHLOG_START:%lu\n", static_cast<unsigned long>(size));
+      uint8_t chunk[256];
+      for (uint32_t left = size; file && left;) {
+        const int n = file.read(chunk, std::min<uint32_t>(sizeof(chunk), left));
+        if (n <= 0) break;
+        logSerial.write(chunk, n);
+        left -= n;
+      }
+      if (file) file.close();
+      logSerial.print("\nCRASHLOG_END\n");
+    }
 #if XTEINK_INK_STORIES
     if (!rejected && usbFile::parse(frame, usbFileCommand)) {
       lastActivityTime = millis();  // Keep the short loop delay while a host is pushing.

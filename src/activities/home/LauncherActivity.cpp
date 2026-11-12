@@ -11,6 +11,9 @@
 #if XTEINK_INK_STORIES
 #include "StoriesActivity.h"
 #endif
+#if XTEINK_TV_REMOTE
+#include "TvRemoteActivity.h"
+#endif
 #include "components/UITheme.h"
 
 namespace fui = freeink::ui;
@@ -21,8 +24,13 @@ constexpr StrId STORY_LABEL = StrId::STR_STORIES_TITLE;
 #else
 constexpr StrId STORY_LABEL = StrId::STR_LAUNCHER_STORIES;
 #endif
+#if XTEINK_TV_REMOTE
+constexpr StrId TV_LABEL = StrId::STR_TV_TITLE;
+#else
+constexpr StrId TV_LABEL = StrId::STR_LAUNCHER_TV;
+#endif
 constexpr StrId LABELS[] = {StrId::STR_LAUNCHER_READER, STORY_LABEL,
-                            StrId::STR_LAUNCHER_HOSTS,  StrId::STR_LAUNCHER_TV,
+                            StrId::STR_LAUNCHER_HOSTS,  TV_LABEL,
                             StrId::STR_LAUNCHER_INBOX,  StrId::STR_SETTINGS_TITLE};
 
 static_assert(sizeof(LABELS) / sizeof(LABELS[0]) == launcher::MODE_COUNT);
@@ -30,6 +38,9 @@ static_assert(sizeof(LABELS) / sizeof(LABELS[0]) == launcher::MODE_COUNT);
 bool available(launcher::Mode mode) {
 #if XTEINK_INK_STORIES
   if (mode == launcher::Mode::Stories) return true;
+#endif
+#if XTEINK_TV_REMOTE
+  if (mode == launcher::Mode::Tv) return true;
 #endif
   return mode == launcher::Mode::Reader || mode == launcher::Mode::Settings;
 }
@@ -85,8 +96,20 @@ void LauncherActivity::activate(launcher::Mode mode) {
       return;
     }
 #endif
-    case launcher::Mode::Hosts:
     case launcher::Mode::Tv:
+#if XTEINK_TV_REMOTE
+    {
+      auto remote = makeUniqueNoThrow<TvRemoteActivity>(renderer, mappedInput);
+      if (!remote) {
+        LOG_ERR("HOME", "OOM: TV remote");
+        return;
+      }
+      app.clearTapFlash();
+      activityManager.replaceActivity(std::move(remote));
+      return;
+    }
+#endif
+    case launcher::Mode::Hosts:
     case launcher::Mode::Inbox:
       requestUpdate();
       return;
