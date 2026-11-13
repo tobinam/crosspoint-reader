@@ -17,7 +17,8 @@ class InkStorySession {
   static constexpr size_t TEXT_BYTES = 8192;
   static constexpr size_t MAX_CHOICES = 16;
   static bool validHeader(const uint8_t* bytes, size_t length);
-  bool load(const uint8_t* bytes, size_t length);
+  // seed 0 keeps InkCPP's clock seed (the device); tools pass a fixed seed for reproducible RANDOM.
+  bool load(const uint8_t* bytes, size_t length, uint32_t seed = 0);
   bool choose(size_t index);
   // Streams VM state (globals, visit counts, position) at the current choice point.
   bool saveSnapshot(ink::runtime::snapshot::writer& writer) const;

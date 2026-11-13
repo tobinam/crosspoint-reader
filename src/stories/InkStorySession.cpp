@@ -31,13 +31,14 @@ void InkStorySession::clear() {
   lang[0] = 0;
 }
 
-bool InkStorySession::load(const uint8_t* bytes, size_t length) {
+bool InkStorySession::load(const uint8_t* bytes, size_t length, uint32_t seed) {
   clear();
   if (!validHeader(bytes, length)) return false;
   // InkCPP owns its VM allocations, but not the caller's PSRAM story bytes.
   story.reset(ink::runtime::story::from_binary(bytes, length, false));
   if (!story) return false;
   runner = story->new_runner();
+  if (runner && seed) runner->set_rng_seed(seed);
   return runner && advance();
 }
 
