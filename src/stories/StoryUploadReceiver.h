@@ -20,6 +20,8 @@ class StoryUploadReceiver {
   char name[usbFile::NAME_BYTES + 1]{};
 
   void abort();
+  void list(uint32_t requestId, HalUsbConsole& console);
+  void remove(uint32_t requestId, const char* storyName, HalUsbConsole& console);
   bool active() const { return id != 0; }
 
  public:

@@ -8,12 +8,14 @@
 //   XT1 FILE BEGIN <id> <name-hex> <size> <crc32-hex8>
 //   XT1 FILE DATA <id> <offset> <payload-hex>
 //   XT1 FILE END <id>
+//   XT1 FILE LIST <id>               -> XT1 ITEM <id> <name-hex>,<size>,<crc32-hex8> per story, then XT1 DONE <id> <count>
+//   XT1 FILE DELETE <id> <name-hex>  -> XT1 DONE <id> 0 (also drops the story's save and play count)
 namespace usbFile {
 constexpr size_t NAME_BYTES = 94;
 constexpr size_t CHUNK_BYTES = 768;
 constexpr uint32_t MAX_FILE_BYTES = 256 * 1024;
 
-enum class Kind { None, Begin, Data, End };
+enum class Kind { None, Begin, Data, End, List, Delete };
 
 struct Command {
   Kind kind = Kind::None;
@@ -96,11 +98,23 @@ inline bool parse(const char* line, Command& command) {
     kind = Kind::Data;
   else if (literal(p, "END "))
     kind = Kind::End;
+  else if (literal(p, "LIST "))
+    kind = Kind::List;
+  else if (literal(p, "DELETE "))
+    kind = Kind::Delete;
   else
     return false;
   if (!number(p, command.id, false)) return false;
-  if (kind == Kind::End) {
+  if (kind == Kind::End || kind == Kind::List) {
     if (*p) return false;
+  } else if (kind == Kind::Delete) {
+    uint8_t name[NAME_BYTES + 1];
+    if (!literal(p, " ")) return false;
+    const size_t nameLength = hexBytes(p, name, NAME_BYTES);
+    if (!nameLength || *p) return false;
+    std::memcpy(command.name, name, nameLength);
+    command.name[nameLength] = 0;
+    if (!validName(command.name)) return false;
   } else if (kind == Kind::Begin) {
     uint8_t name[NAME_BYTES + 1];
     uint8_t crc[4];

@@ -5,6 +5,9 @@
 #include <Logging.h>
 
 #include <cstdio>
+#include <cstring>
+
+#include "StoryProgress.h"
 
 namespace {
 constexpr char TEMP[] = "/stories/.upload.tmp";
@@ -23,8 +26,52 @@ void StoryUploadReceiver::expire(uint32_t nowMs) {
   }
 }
 
+void StoryUploadReceiver::list(uint32_t requestId, HalUsbConsole& console) {
+  auto dir = Storage.open("/stories");
+  uint32_t count = 0;
+  char value[2 * usbFile::NAME_BYTES + 24];
+  for (size_t scanned = 0; dir && dir.isDirectory() && scanned < 256; ++scanned) {
+    auto file = dir.openNextFile();
+    if (!file) break;
+    char name[usbFile::NAME_BYTES + 2]{};
+    if (file.isDirectory() || !file.getName(name, sizeof(name)) || !usbFile::validName(name)) continue;
+    const uint32_t size = static_cast<uint32_t>(file.size());
+    uint32_t crc = 0;
+    uint8_t chunk[512];
+    for (int n; (n = file.read(chunk, sizeof(chunk))) > 0;) crc = usbFile::crc32(crc, chunk, n);
+    file.close();
+    char* out = value;
+    for (const char* c = name; *c; ++c) out += std::snprintf(out, 3, "%02x", static_cast<unsigned char>(*c));
+    std::snprintf(out, value + sizeof(value) - out, ",%lu,%08lx", static_cast<unsigned long>(size),
+                  static_cast<unsigned long>(crc));
+    console.reply(requestId, "ITEM", value);
+    ++count;
+  }
+  char total[12];
+  std::snprintf(total, sizeof(total), "%lu", static_cast<unsigned long>(count));
+  console.reply(requestId, "DONE", total);
+}
+
+void StoryUploadReceiver::remove(uint32_t requestId, const char* storyName, HalUsbConsole& console) {
+  char path[112];
+  std::snprintf(path, sizeof(path), "/stories/%s", storyName);
+  if (!Storage.exists(path)) {
+    console.reply(requestId, "ERROR", "NOFILE");
+    return;
+  }
+  if (!Storage.remove(path)) {
+    console.reply(requestId, "ERROR", "STORAGE");
+    return;
+  }
+  storyProgress::forget(storyName);
+  LOG_INF("USB", "Story deleted %s", path);
+  console.reply(requestId, "DONE", "0");
+}
+
 void StoryUploadReceiver::handle(const usbFile::Command& command, HalUsbConsole& console, uint32_t nowMs) {
   using usbFile::Kind;
+  if (command.kind == Kind::List) return list(command.id, console);
+  if (command.kind == Kind::Delete) return remove(command.id, command.name, console);
   if (command.kind == Kind::Begin) {
     // A new BEGIN replaces an abandoned upload.
     if (active()) abort();

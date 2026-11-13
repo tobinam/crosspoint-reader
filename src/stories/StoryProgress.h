@@ -16,6 +16,8 @@ bool save(const char* storyName, uint32_t storyCrc, const InkStorySession& sessi
 bool restore(const char* storyName, uint32_t storyCrc, const uint8_t* bytes, size_t length, InkStorySession& session,
              uint32_t& pageOffset);
 void discard(const char* storyName);
+// Drops the save and the play count (story deleted).
+void forget(const char* storyName);
 uint16_t plays(const char* storyName);
 void addPlay(const char* storyName);
 // Wake marker: the story open when the device went to sleep.

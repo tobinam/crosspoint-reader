@@ -59,3 +59,20 @@ TEST(UsbFileTransfer, Crc32MatchesZlib) {
                            reinterpret_cast<const uint8_t*>(text + 4), 5),
             0xcbf43926u);
 }
+
+TEST(UsbFileTransfer, ParsesListAndDelete) {
+  Command c;
+  ASSERT_TRUE(usbFile::parse("XT1 FILE LIST 9", c));
+  EXPECT_EQ(c.kind, Kind::List);
+  EXPECT_EQ(c.id, 9u);
+  EXPECT_FALSE(usbFile::parse("XT1 FILE LIST 9 x", c));
+  EXPECT_FALSE(usbFile::parse("XT1 FILE LIST 0", c));
+
+  ASSERT_TRUE(usbFile::parse("XT1 FILE DELETE 4 6c6f772d746964652e62696e", c));
+  EXPECT_EQ(c.kind, Kind::Delete);
+  EXPECT_EQ(c.id, 4u);
+  EXPECT_STREQ(c.name, "low-tide.bin");
+  EXPECT_FALSE(usbFile::parse("XT1 FILE DELETE 4 2e2e2f782e62696e", c));  // ../x.bin
+  EXPECT_FALSE(usbFile::parse("XT1 FILE DELETE 4 2e7361766520", c));      // .save
+  EXPECT_FALSE(usbFile::parse("XT1 FILE DELETE 4", c));
+}

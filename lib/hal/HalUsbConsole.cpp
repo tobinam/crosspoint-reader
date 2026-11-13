@@ -20,7 +20,7 @@ const char* HalUsbConsole::pollLine() {
 }
 
 void HalUsbConsole::reply(uint32_t id, const char* kind, const char* value) {
-  char frame[96];
+  char frame[256];
   const int length =
       std::snprintf(frame, sizeof(frame), "XT1 %s %lu %s\n", kind, static_cast<unsigned long>(id), value);
   if (length > 0 && static_cast<size_t>(length) < sizeof(frame)) {

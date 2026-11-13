@@ -105,6 +105,12 @@ void discard(const char* name) {
   if (path(target, sizeof(target), name, ".sav") && Storage.exists(target)) Storage.remove(target);
 }
 
+void forget(const char* name) {
+  discard(name);
+  char target[160];
+  if (path(target, sizeof(target), name, ".plays") && Storage.exists(target)) Storage.remove(target);
+}
+
 uint16_t plays(const char* name) {
   char target[160];
   if (!path(target, sizeof(target), name, ".plays") || !Storage.exists(target)) return 0;
