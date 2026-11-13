@@ -460,3 +460,29 @@ TV fixes, same round:
 - Remote mode sets the public address again after keyboard mode.
 - Up to 8 bonds instead of the prebuilt 3 (`scripts/x4c_tv_nimble.h`).
 - Playback: hold Left/Right for previous/next track.
+
+## Inbox (saved pages over USB)
+
+The Inbox tile (`XTEINK_INBOX`, x4c only) lists pages a computer saved on the X4 over USB, newest first, with the
+sender below the title and "new" until opened. Opening a page marks it read; Up/Down page through a long body, Back
+returns to the list. Holding Confirm on a page asks "Delete this page" (Keep is preselected). Back on the list
+returns to the tiles.
+
+Pages live in `/inbox`, one file per sender and id (`<owner>+<id>.pg`, written through `/inbox/.page.tmp`). The rules
+follow sai's reference inbox (`xteink/inbox.py`): the same revision and content is a duplicate, the same revision with
+other content a conflict, a lower revision stale, a higher one replaces the page and makes it new again. Deleting
+leaves a tombstone, so the sender cannot bring a deleted id back; it has to use a new id. At most 64 ids, tombstones
+included; when full a new id is refused, nothing is dropped.
+
+USB console (`src/util/UsbInbox.h`, one line each, text as UTF-8 hex):
+
+    XT1 INBOX PUT <req> <owner> <id> <revision> <title> <body or ->
+      -> XT1 DONE <req> stored|duplicate|stale|deleted, or XT1 ERROR <req> CONFLICT|FULL|STORAGE|BUSY
+    XT1 INBOX LIST <req>
+      -> XT1 ITEM <req> <owner>,<id>,<revision>,unread|read|deleted per id, then XT1 DONE <req> <count>
+
+Owner and id: 1-32 of `a-z 0-9 . _ -`; title up to 64 bytes, one line; body up to 640 bytes (one console line carries
+the page). A page arrives in any screen and an open Inbox list reloads. Host side: sai `xteink-send`. The live page
+(`XT1 PAGE`) stays as it was: shown at once, not stored.
+
+Not yet: QR pages, deleting from the host, receiving over Bluetooth or WiFi. Tests: `test/inbox` (host).

@@ -49,6 +49,10 @@
 #include "activities/home/StoriesActivity.h"
 #include "stories/StoryProgress.h"
 #include "stories/StoryUploadReceiver.h"
+#if XTEINK_INBOX
+#include "inbox/InboxStore.h"
+#include "util/UsbInbox.h"
+#endif
 #endif
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
@@ -89,6 +93,41 @@ static bool usbLivePageActive = false;
 #if XTEINK_INK_STORIES
 static usbFile::Command usbFileCommand;
 static StoryUploadReceiver storyUpload;
+#if XTEINK_INBOX
+static usbInbox::Command usbInboxCommand;
+
+// Saved inbox pages from the USB host (util/UsbInbox.h); replies on the console.
+static void handleInboxCommand(const usbInbox::Command& command) {
+  if (command.kind == usbInbox::Kind::Put) {
+    const auto result = inbox::receive(command.page);
+    const bool ok = result == inbox::Result::Stored || result == inbox::Result::Duplicate ||
+                    result == inbox::Result::Stale || result == inbox::Result::Deleted;
+    LOG_INF("USB", "Inbox page %s+%s r%lu: %s", command.page.owner, command.page.id,
+            static_cast<unsigned long>(command.page.revision), inbox::resultName(result));
+    usbConsole.reply(command.id, ok ? "DONE" : "ERROR", inbox::resultName(result));
+    return;
+  }
+  std::unique_ptr<inbox::Entry[]> entries(new (std::nothrow) inbox::Entry[inbox::CAPACITY]);
+  if (!entries) {
+    usbConsole.reply(command.id, "ERROR", "OOM");
+    return;
+  }
+  const size_t count = inbox::list(entries.get(), inbox::CAPACITY, true);
+  char value[4 * inbox::KEY_BYTES + 24];
+  for (size_t i = 0; i < count; ++i) {
+    char* out = value;
+    for (const char* c = entries[i].owner; *c; ++c) out += std::snprintf(out, 3, "%02x", static_cast<unsigned char>(*c));
+    *out++ = ',';
+    for (const char* c = entries[i].id; *c; ++c) out += std::snprintf(out, 3, "%02x", static_cast<unsigned char>(*c));
+    std::snprintf(out, value + sizeof(value) - out, ",%lu,%s", static_cast<unsigned long>(entries[i].revision),
+                  entries[i].deleted ? "deleted" : entries[i].unread ? "unread" : "read");
+    usbConsole.reply(command.id, "ITEM", value);
+  }
+  char total[12];
+  std::snprintf(total, sizeof(total), "%lu", static_cast<unsigned long>(count));
+  usbConsole.reply(command.id, "DONE", total);
+}
+#endif
 #endif
 #endif
 
@@ -1203,6 +1242,15 @@ void loop() {
         usbConsole.reply(usbFileCommand.id, "BUSY", "1");
       else
         storyUpload.handle(usbFileCommand, usbConsole, millis());
+    }
+#endif
+#if XTEINK_INBOX
+    if (!rejected && usbInbox::parse(frame, usbInboxCommand)) {
+      lastActivityTime = millis();
+      if (activityManager.requiresExclusiveStorageLoop())
+        usbConsole.reply(usbInboxCommand.id, "ERROR", "BUSY");
+      else
+        handleInboxCommand(usbInboxCommand);
     }
 #endif
     usbConsole.consumeLine();

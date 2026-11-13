@@ -1,0 +1,5 @@
+add_executable(InboxStoreTest InboxStoreTest.cpp ${REPO_ROOT}/src/inbox/InboxStore.cpp)
+target_compile_definitions(InboxStoreTest PRIVATE INBOX_HOST_TEST=1)
+target_include_directories(InboxStoreTest PRIVATE ../library_builder/stubs ${REPO_ROOT}/src)
+target_link_libraries(InboxStoreTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(InboxStoreTest)

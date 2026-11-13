@@ -73,6 +73,7 @@ add_subdirectory(dock_sleep)
 add_subdirectory(launcher)
 add_subdirectory(usb_live)
 add_subdirectory(stories)
+add_subdirectory(inbox)
 add_subdirectory(button_press_navigation)
 
 add_subdirectory(inflate_stream)

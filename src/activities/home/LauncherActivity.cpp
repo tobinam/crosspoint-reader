@@ -14,6 +14,9 @@
 #if XTEINK_TV_REMOTE
 #include "TvRemoteActivity.h"
 #endif
+#if XTEINK_INBOX
+#include "InboxActivity.h"
+#endif
 #include "components/UITheme.h"
 #if XTEINK_MODES
 #include "modes/Modes.h"
@@ -32,9 +35,14 @@ constexpr StrId TV_LABEL = StrId::STR_TV_TITLE;
 #else
 constexpr StrId TV_LABEL = StrId::STR_LAUNCHER_TV;
 #endif
+#if XTEINK_INBOX
+constexpr StrId INBOX_LABEL = StrId::STR_INBOX_TITLE;
+#else
+constexpr StrId INBOX_LABEL = StrId::STR_LAUNCHER_INBOX;
+#endif
 constexpr StrId LABELS[] = {StrId::STR_LAUNCHER_READER, STORY_LABEL,
                             StrId::STR_LAUNCHER_HOSTS,  TV_LABEL,
-                            StrId::STR_LAUNCHER_INBOX,  StrId::STR_SETTINGS_TITLE};
+                            INBOX_LABEL,                StrId::STR_SETTINGS_TITLE};
 
 static_assert(sizeof(LABELS) / sizeof(LABELS[0]) == launcher::MODE_COUNT);
 
@@ -44,6 +52,9 @@ bool available(launcher::Mode mode) {
 #endif
 #if XTEINK_TV_REMOTE
   if (mode == launcher::Mode::Tv) return true;
+#endif
+#if XTEINK_INBOX
+  if (mode == launcher::Mode::Inbox) return true;
 #endif
   return mode == launcher::Mode::Reader || mode == launcher::Mode::Settings;
 }
@@ -113,8 +124,20 @@ void LauncherActivity::activate(launcher::Mode mode) {
       return;
     }
 #endif
-    case launcher::Mode::Hosts:
     case launcher::Mode::Inbox:
+#if XTEINK_INBOX
+    {
+      auto inboxScreen = makeUniqueNoThrow<InboxActivity>(renderer, mappedInput);
+      if (!inboxScreen) {
+        LOG_ERR("HOME", "OOM: inbox");
+        return;
+      }
+      app.clearTapFlash();
+      activityManager.replaceActivity(std::move(inboxScreen));
+      return;
+    }
+#endif
+    case launcher::Mode::Hosts:
       requestUpdate();
       return;
   }
