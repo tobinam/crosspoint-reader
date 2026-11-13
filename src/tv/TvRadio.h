@@ -18,7 +18,7 @@ enum class Mode : uint8_t { Remote, Keyboard };
 constexpr size_t MAX_BRIDGES = 4;
 
 // TV keys. Remote: sent as the deck_tv op of the same name; Keyboard: a HID usage.
-enum class Op : uint8_t { On, Off, Home, Return, Toggle, Stop, Rew, Fwd, VolUp, VolDown, Mute, Up, Down, Left, Right, Ok };
+enum class Op : uint8_t { On, Off, Home, Return, Toggle, Stop, Rew, Fwd, VolUp, VolDown, Mute, Up, Down, Left, Right, Ok, Next, Prev };
 const char* opName(Op op);
 
 class Radio {

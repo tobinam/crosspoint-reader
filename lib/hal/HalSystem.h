@@ -17,4 +17,6 @@ void clearPanic();
 
 std::string getPanicInfo(bool full = false);
 bool isRebootFromPanic();
+// Why the chip started this time (esp_reset_reason()), e.g. "DEEPSLEEP" after a wake, "POWERON" after power loss.
+const char* resetReason();
 }  // namespace HalSystem

@@ -1,5 +1,9 @@
 #include "SettingsActivity.h"
 
+#if FREEINK_DEVICE_X4CLASSIC
+#include "activities/home/LauncherActivity.h"
+#endif
+
 #include <BlePageTurner.h>
 #include <BoardConfig.h>
 #include <GfxRenderer.h>
@@ -85,7 +89,8 @@ SettingsSection sectionFor(const SettingInfo& setting) {
 bool belongsToControlsGroup(const SettingInfo& setting, ControlsGroup group) {
   const auto field = setting.valuePtr;
   const bool power =
-      setting.key && (std::strcmp(setting.key, "shortPwrBtn") == 0 || std::strcmp(setting.key, "doublePwrBtn") == 0);
+      setting.key && (std::strcmp(setting.key, "shortPwrBtn") == 0 || std::strcmp(setting.key, "doublePwrBtn") == 0 ||
+                      std::strcmp(setting.key, "powerModes") == 0);
   const bool menu = setting.key && std::strcmp(setting.key, "longPressMenuFunction") == 0;
   const bool shared = field == &CrossPointSettings::longPressButtonBehavior;
   switch (group) {
@@ -139,6 +144,9 @@ void SettingsActivity::rebuildSettings() {
 
   // Language leads so a user stuck in an unfamiliar language finds it first.
   addAction(SettingsSection::General, StrId::STR_LANGUAGE, SettingAction::Language);
+#if XTEINK_MODES
+  addAction(SettingsSection::General, StrId::STR_ALL_MODES, SettingAction::AllModes);
+#endif
   addAction(SettingsSection::General, StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts);
   addAction(SettingsSection::Reader, StrId::STR_TEXT_SETTINGS, SettingAction::TextSettings);
   addAction(SettingsSection::Reader, StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts);
@@ -509,6 +517,14 @@ void SettingsActivity::toggleSelectedSetting() {
         } else {
           LOG_ERR("SETTINGS", "OOM: AboutActivity");
         }
+        break;
+      case SettingAction::AllModes:
+#if FREEINK_DEVICE_X4CLASSIC
+        if (auto tiles = makeUniqueNoThrow<LauncherActivity>(renderer, mappedInput, HomeMenuItem::NONE, false)) {
+          activityManager.replaceActivity(std::move(tiles));
+          return;
+        }
+#endif
         break;
       case SettingAction::None:
         // Do nothing

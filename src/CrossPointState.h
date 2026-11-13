@@ -20,6 +20,8 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint32_t sleepOverlayLcgState = 0;
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
+  uint8_t lastMode = 0xFF;      // X4C modes: the mode slept in (modes::Mode), 0xFF: none
+  uint32_t lastSleepAt = 0;     // time() at that sleep; 0: unknown
   bool showBootScreen = true;
 
   static const char* getFilePath() { return "/.crosspoint/state.json"; }

@@ -36,6 +36,7 @@ enum class SettingAction {
   ControlsSide,
   ControlsTouch,
   About,
+  AllModes,  // X4C modes: the tiles view
 };
 
 struct SettingInfo {

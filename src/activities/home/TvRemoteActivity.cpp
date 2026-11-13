@@ -1,7 +1,12 @@
 #if XTEINK_TV_REMOTE
 #include "TvRemoteActivity.h"
 
+#if XTEINK_MODES
+#include "modes/Modes.h"
+#endif
+
 #include <ArduinoJson.h>
+#include <esp_attr.h>
 #include <HalStorage.h>
 #include <I18n.h>
 
@@ -18,6 +23,8 @@ namespace {
 constexpr char MODE_FILE[] = "/.crosspoint/tv_mode";
 constexpr char BRIDGES_FILE[] = "/.crosspoint/tv_bridges";  // paired bridges' identity addresses, one per line
 constexpr uint32_t PAIR_WINDOW_MS = 60000;
+// The view slept in (RTC memory survives deep sleep, not a power cut); a recent wake reopens it.
+RTC_DATA_ATTR uint8_t sleptView = 0xFF;
 constexpr unsigned long HOLD_MS = 600;
 
 void copy(char* out, size_t size, const char* in) {
@@ -93,8 +100,15 @@ void TvRemoteActivity::switchMode() {
 }
 
 void TvRemoteActivity::onEnter() {
+#if XTEINK_MODES
+  modes::setCurrent(modes::Mode::Tv);  // the power button's next mode follows from here
+#endif
   loadMode();
   UiListActivity::onEnter();
+#if XTEINK_MODES
+  if (modes::takeRecentWake() && sleptView <= static_cast<uint8_t>(View::Playback)) view = static_cast<View>(sleptView);
+#endif
+  sleptView = 0xFF;
   startRadio();
   requestUpdate();
 }
@@ -104,7 +118,10 @@ void TvRemoteActivity::onExit() {
   UiListActivity::onExit();
 }
 
-void TvRemoteActivity::prepareForSleep() { tv::radio().stop(); }
+void TvRemoteActivity::prepareForSleep() {
+  sleptView = view == View::Clips ? static_cast<uint8_t>(View::Menu) : static_cast<uint8_t>(view);  // lists reload
+  tv::radio().stop();
+}
 
 // --- the bridge's messages ------------------------------------------------------
 
@@ -299,8 +316,13 @@ bool TvRemoteActivity::padInput() {
   // Volume: the side keys the other way round from the D-pad (on hardware, Up turned it down)
   else if (mappedInput.wasPressed(Button::Up)) press(pad ? tv::Op::Up : tv::Op::VolDown);
   else if (mappedInput.wasPressed(Button::Down)) press(pad ? tv::Op::Down : tv::Op::VolUp);
-  else if (mappedInput.wasPressed(Button::Left)) press(pad ? tv::Op::Left : tv::Op::Rew);
-  else if (mappedInput.wasPressed(Button::Right)) press(pad ? tv::Op::Right : tv::Op::Fwd);
+  else if (pad && mappedInput.wasPressed(Button::Left)) press(tv::Op::Left);
+  else if (pad && mappedInput.wasPressed(Button::Right)) press(tv::Op::Right);
+  // Playback: Left/Right held = previous/next track, a short press seeks (on release: a hold must not seek first)
+  else if (!pad && mappedInput.wasLongPressed(Button::Left, HOLD_MS)) press(tv::Op::Prev);
+  else if (!pad && mappedInput.wasLongPressed(Button::Right, HOLD_MS)) press(tv::Op::Next);
+  else if (!pad && mappedInput.wasReleased(Button::Left)) press(tv::Op::Rew);
+  else if (!pad && mappedInput.wasReleased(Button::Right)) press(tv::Op::Fwd);
   return true;  // the list underneath gets nothing
 }
 

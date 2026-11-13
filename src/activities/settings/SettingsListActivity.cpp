@@ -1,5 +1,9 @@
 #include "SettingsListActivity.h"
 
+#if XTEINK_MODES
+#include "modes/Modes.h"
+#endif
+
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -26,6 +30,9 @@ SettingsListActivity::SettingsListActivity(GfxRenderer& renderer, MappedInputMan
     : UiListActivity("SettingsList", renderer, mappedInput), pendingSection(openSection) {}
 
 void SettingsListActivity::onEnter() {
+#if XTEINK_MODES
+  modes::setCurrent(modes::Mode::Settings);  // the power button's next mode follows from here
+#endif
   UiListActivity::onEnter();
   rebuildRows();
 }

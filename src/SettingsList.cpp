@@ -183,6 +183,18 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   // Double-click power frontlight shortcut only exists on the X4 Pro.
   if (BoardConfig::isX4Pro()) emit(buildDoublePowerButtonSetting());
   emit(buildShortPowerButtonSetting());
+#if XTEINK_MODES
+  emit(SettingInfo::Enum(StrId::STR_POWER_MODES, &CrossPointSettings::powerModes,
+                         {StrId::STR_POWER_MODES_CLASSIC, StrId::STR_POWER_MODES_SHORT_SLEEP,
+                          StrId::STR_POWER_MODES_SHORT_SWITCH},
+                         "powerModes", StrId::STR_CAT_CONTROLS));
+  emit(SettingInfo::Enum(StrId::STR_WAKE_RESUME, &CrossPointSettings::wakeResume,
+                         {StrId::STR_WAKE_15_MIN, StrId::STR_WAKE_30_MIN, StrId::STR_WAKE_60_MIN, StrId::STR_WAKE_90_MIN,
+                          StrId::STR_WAKE_3_H, StrId::STR_WAKE_ALWAYS},
+                         "wakeResume", StrId::STR_CAT_SYSTEM));
+  emit(SettingInfo::Toggle(StrId::STR_START_IN_TILES, &CrossPointSettings::startInTiles, "startInTiles",
+                           StrId::STR_CAT_SYSTEM));
+#endif
   // Always persisted; isHiddenOnDevice() hides it when the IMU probe fails.
   emit(SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
                          {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED}, "tiltPageTurn",

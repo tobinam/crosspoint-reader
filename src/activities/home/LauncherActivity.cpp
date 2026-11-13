@@ -15,6 +15,9 @@
 #include "TvRemoteActivity.h"
 #endif
 #include "components/UITheme.h"
+#if XTEINK_MODES
+#include "modes/Modes.h"
+#endif
 
 namespace fui = freeink::ui;
 namespace {
@@ -68,6 +71,7 @@ void LauncherActivity::move(int delta) {
 
 void LauncherActivity::activate(launcher::Mode mode) {
   selected.store(mode);
+
   switch (mode) {
     case launcher::Mode::Reader: {
       auto readerHome = makeUniqueNoThrow<HomeActivity>(renderer, mappedInput);

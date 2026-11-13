@@ -426,3 +426,37 @@ Fixes from these tests:
 Not yet verified on hardware: keyboard mode after that fix, and the final build that
 accepts only tix. While the radio started, USB serial dropped for about 2 minutes.
 Tests: `test/tv_framing` (host).
+
+## Modes on the power button
+
+`XTEINK_MODES` (x4c). Settings → Controls → Power button → "Power button and modes" has three choices:
+- *Short: sleep, long: next mode* (the default);
+- *Short: next mode, long: sleep*;
+- *Classic*: CrossPoint's hold-to-sleep with the "Short click" action.
+
+With either mode setting the short press is the modes' own, so "Short click" is set to Ignore. The long press fires
+at 600 ms while the button is still held, the short press on release. Activities may take the switch for themselves
+(`Activity::handlePowerModeSwitch`); none does yet.
+
+The modes are Reader → Stories → TV remote → Settings, jumped to directly with the mode name shown large first. Each
+mode's entry screen records itself in `src/modes`.
+
+Waking reopens the mode slept in. The reader and Stories reopen their exact place, as before. TV reopens its view if
+the sleep was shorter than "Wake into the same screen within" (General, default 1.5 h); later it reopens its main
+screen. Leaving Stories from inside a story and coming back reopens that story (its wake marker).
+
+Home (`goHome`) is the reader's home; Back there resumes the book, as upstream. The tiles stay available from General
+→ "Show all modes (tiles)", or always with "Start in the tiles view".
+
+Every boot appends its reset reason to `/.crosspoint/boots.txt` (last 20); `CMD:BOOTLOG` prints it over USB.
+
+Hardware, 11-13: modes, sleep/wake and the settings were tried on the X4C. Holding power for 5, 10 and 15 s on
+battery only ever slept (boot log: DEEPSLEEP, no POWERON), so the 600 ms switch is far from a power cut. Two runs
+woke twice within seconds: not yet explained.
+
+TV fixes, same round:
+- Keyboard mode's address comes from the eFuse Bluetooth MAC. It was derived from the current address, whose type
+  outlives NimBLE deinit, so each start made a new "X4 Keyboard" on the TV.
+- Remote mode sets the public address again after keyboard mode.
+- Up to 8 bonds instead of the prebuilt 3 (`scripts/x4c_tv_nimble.h`).
+- Playback: hold Left/Right for previous/next track.

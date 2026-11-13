@@ -299,6 +299,18 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t textAntiAliasing = 1;
   // Short power button click behaviour
   uint8_t shortPwrBtn = IGNORE;
+  // X4C modes (XTEINK_MODES): what the power button's short press and long press do. Classic keeps shortPwrBtn and
+  // hold-to-sleep. With a mode setting, the long press goes to the next mode (Reader, Stories, TV, Settings).
+  enum POWER_MODES { PWR_MODES_CLASSIC = 0, PWR_MODES_SHORT_SLEEP = 1, PWR_MODES_SHORT_SWITCH = 2, POWER_MODES_COUNT };
+  uint8_t powerModes = PWR_MODES_SHORT_SLEEP;
+  // Waking within this long reopens the very screen slept on; later, the mode's main screen.
+  enum WAKE_RESUME { WAKE_15_MIN = 0, WAKE_30_MIN, WAKE_60_MIN, WAKE_90_MIN, WAKE_3_H, WAKE_ALWAYS, WAKE_RESUME_COUNT };
+  uint8_t wakeResume = WAKE_90_MIN;
+  uint32_t wakeResumeSeconds() const {
+    static constexpr uint32_t SECONDS[] = {15 * 60, 30 * 60, 60 * 60, 90 * 60, 3 * 3600, UINT32_MAX};
+    return SECONDS[wakeResume < WAKE_RESUME_COUNT ? wakeResume : WAKE_90_MIN];
+  }
+  uint8_t startInTiles = 0;  // waking and the Home gesture land on the tiles instead of the last mode
   // X4 Pro double click; Ignore disables the single-click delay.
   uint8_t doublePwrBtn = PWR_FRONTLIGHT;
   uint8_t homeButtonTapAction = static_cast<uint8_t>(HomeButtonAction::Home);

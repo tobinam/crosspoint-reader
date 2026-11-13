@@ -56,6 +56,9 @@
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/DockSleepPolicy.h"
+#if XTEINK_MODES
+#include "modes/Modes.h"
+#endif
 #include "util/PluginEvents.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SlideSwitch.h"
@@ -458,6 +461,35 @@ static bool holdSleepWhileUsbPowered() {
 #endif
 
 // Enter deep sleep mode
+#if FREEINK_DEVICE_X4CLASSIC
+// The last BOOT_LOG_LINES starts with their reset reason ("DEEPSLEEP": woke from sleep, "POWERON": power was cut),
+// for checks a live serial log cannot catch (USB is gone while asleep). CMD:BOOTLOG prints it.
+constexpr char BOOT_LOG[] = "/.crosspoint/boots.txt";
+constexpr int BOOT_LOG_LINES = 20;
+
+void recordBoot() {
+  char old[1536] = "";
+  const size_t n = Storage.readFileToBuffer(BOOT_LOG, old, sizeof(old));
+  const char* keep = old;
+  int lines = 0;
+  for (size_t i = 0; i < n; ++i) lines += old[i] == '\n';
+  for (; lines >= BOOT_LOG_LINES && *keep; --lines) {
+    const char* nl = std::strchr(keep, '\n');
+    keep = nl ? nl + 1 : keep + std::strlen(keep);
+  }
+  char line[64];
+  const time_t now = time(nullptr);
+  struct tm tm{};
+  localtime_r(&now, &tm);
+  std::snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02d %s\n", tm.tm_year + 1900, tm.tm_mon + 1,
+                tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, HalSystem::resetReason());
+  String text(keep);
+  text += line;
+  Storage.ensureDirectoryExists("/.crosspoint");
+  Storage.writeFile(BOOT_LOG, text);
+}
+#endif
+
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
@@ -479,6 +511,9 @@ void enterDeepSleep(bool fromTimeout = false) {
   // Every sleep mode leaves a complete retained frame on the e-ink panel. Keep
   // it visible until the first useful reader or home paint replaces it.
   APP_STATE.showBootScreen = false;
+#if XTEINK_MODES
+  modes::noteSleep();
+#endif
 
   APP_STATE.saveToFile();
 
@@ -640,6 +675,9 @@ void setup() {
   }
 
   HalSystem::checkPanic();
+#if FREEINK_DEVICE_X4CLASSIC
+  recordBoot();
+#endif
 
   APP_STATE.loadFromFile();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
@@ -813,17 +851,42 @@ void setup() {
              mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
     // crashed (indicated by readerActivityLoadCount > 0)
+#if XTEINK_MODES
+    // Modes: wake into the mode slept in; the reader and Stories reopen their exact place as before, the others
+    // their main screen. Past "Wake into the same screen within", Stories forgets its exact page.
+    bool recentWake = false;
+    const auto wakeMode = modes::enabled() && !mappedInputManager.isPressed(MappedInputManager::Button::Back)
+                              ? modes::wakeMode(recentWake)
+                              : modes::Mode::None;
 #if XTEINK_INK_STORIES
-    // Slept inside a story: reopen it. Stories consumes the marker on entry,
-    // so a crash while reopening falls back to Home on the next boot.
-    std::unique_ptr<StoriesActivity> stories;
-    if (!mappedInputManager.isPressed(MappedInputManager::Button::Back) && storyProgress::wakeResumePending())
-      stories = makeUniqueNoThrow<StoriesActivity>(renderer, mappedInputManager);
-    if (stories)
-      activityManager.replaceActivity(std::move(stories));
-    else
+    if (wakeMode == modes::Mode::Stories && !recentWake) storyProgress::clearWakeResume();
 #endif
-      activityManager.goHome(HomeMenuItem::NONE, needsWakeRefresh);
+    // Stories, slept long ago: its list (the marker is gone); recent: the marker path below reopens the page
+    const bool wakeHandled = wakeMode == modes::Mode::Tv || wakeMode == modes::Mode::Settings ||
+                             (wakeMode == modes::Mode::Stories && !recentWake);
+    if (wakeHandled) modes::open(wakeMode);
+#else
+    constexpr bool wakeHandled = false;
+#endif
+    if (!wakeHandled) {
+#if XTEINK_INK_STORIES
+      // Slept inside a story: reopen it. Stories consumes the marker on entry,
+      // so a crash while reopening falls back to Home on the next boot.
+      std::unique_ptr<StoriesActivity> stories;
+      // With modes the marker also means "left from inside a story": only waking into Stories reopens it
+      bool storyWake = true;
+#if XTEINK_MODES
+      storyWake = !modes::enabled() || wakeMode == modes::Mode::Stories;
+#endif
+      if (storyWake && !mappedInputManager.isPressed(MappedInputManager::Button::Back) &&
+          storyProgress::wakeResumePending())
+        stories = makeUniqueNoThrow<StoriesActivity>(renderer, mappedInputManager);
+      if (stories)
+        activityManager.replaceActivity(std::move(stories));
+      else
+#endif
+        activityManager.goHome(HomeMenuItem::NONE, needsWakeRefresh);
+    }
   } else {
     // Clear app state to avoid getting into a boot loop if the epub doesn't load
     const auto path = APP_STATE.openEpubPath;
@@ -1008,6 +1071,45 @@ void loop() {
   static bool powerReleasedSinceWake = false;
   if (!gpio.isPressed(HalGPIO::BTN_POWER)) powerReleasedSinceWake = true;
 
+#if XTEINK_MODES
+  // Power button and modes: a short press and a long press (MODE_HOLD_MS) each sleep or switch to the next mode,
+  // per setting. The long press fires while still held, the short one on release; an activity may take the
+  // switch for itself (Activity::handlePowerModeSwitch).
+  if (SETTINGS.powerModes != CrossPointSettings::PWR_MODES_CLASSIC) {
+    // The modes own the short press: a "Short click" action (page turn, refresh, ...) would fire as well
+    if (SETTINGS.shortPwrBtn != CrossPointSettings::IGNORE) SETTINGS.shortPwrBtn = CrossPointSettings::IGNORE;
+    constexpr unsigned long MODE_HOLD_MS = 600;
+    static bool powerHeld = false;
+    static bool longDone = false;
+    const bool pressed = gpio.isPressed(HalGPIO::BTN_POWER);
+    const auto act = [](const bool sleep) {
+      if (sleep) {
+        enterDeepSleep();
+      } else if (!activityManager.handlePowerModeSwitch()) {
+        modes::next();
+      }
+    };
+    if (!powerReleasedSinceWake || millis() < allowSleepAt) {
+      powerHeld = false;
+    } else if (pressed && !powerHeld) {
+      powerHeld = true;
+      longDone = false;
+    } else if (pressed && !longDone && gpio.getPowerButtonHeldTime() >= MODE_HOLD_MS) {
+      if (gpio.isPressed(HalGPIO::BTN_DOWN)) return;  // the screenshot combination
+      longDone = true;
+      act(modes::longPressSleeps());
+      return;
+    } else if (!pressed && powerHeld) {
+      powerHeld = false;
+      if (!longDone) {
+        act(modes::shortPressSleeps());
+        return;
+      }
+    }
+    if (pressed || powerHeld) return;  // never the classic hold-to-sleep below
+  }
+#endif
+
   // On X4 Pro with SLEEP, a press still within the click window is a
   // double-click candidate — let it be released and evaluated above instead
   // of sleeping on button-down.
@@ -1073,6 +1175,11 @@ void loop() {
       logSerial.printf("SCREENSHOT_START:%lu\n", static_cast<unsigned long>(bufferSize));
       logSerial.write(display.getFrameBuffer(), bufferSize);
       logSerial.print("SCREENSHOT_END\n");
+    }
+    if (!rejected && std::strcmp(frame, "CMD:BOOTLOG") == 0 && !activityManager.requiresExclusiveStorageLoop()) {
+      char text[1536] = "";
+      Storage.readFileToBuffer(BOOT_LOG, text, sizeof(text));
+      logSerial.printf("BOOTLOG_START\n%sBOOTLOG_END\n", text);
     }
     // The last panic's report (written by HalSystem::checkPanic), read-only, for a host on USB.
     if (!rejected && std::strcmp(frame, "CMD:CRASHLOG") == 0 && !activityManager.requiresExclusiveStorageLoop()) {

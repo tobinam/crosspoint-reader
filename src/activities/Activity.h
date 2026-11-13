@@ -54,6 +54,8 @@ class Activity {
   virtual bool handleForcedRefresh() { return false; }
   virtual bool isHomeActivity() const { return false; }
   virtual bool handleHomeGesture() { return false; }
+  // X4C modes: the power button's "next mode" press; true when the activity used it itself.
+  virtual bool handlePowerModeSwitch() { return false; }
   virtual ScreenshotInfo getScreenshotInfo() const { return {}; }
 
   // Start a new activity without destroying the current one

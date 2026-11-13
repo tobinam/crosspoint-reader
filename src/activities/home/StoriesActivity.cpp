@@ -1,6 +1,10 @@
 #if XTEINK_INK_STORIES
 #include "StoriesActivity.h"
 
+#if XTEINK_MODES
+#include "modes/Modes.h"
+#endif
+
 #include <HalStorage.h>
 #include <I18n.h>
 
@@ -72,6 +76,9 @@ void StoriesActivity::scan() {
 }
 
 void StoriesActivity::onEnter() {
+#if XTEINK_MODES
+  modes::setCurrent(modes::Mode::Stories);  // the power button's next mode follows from here
+#endif
   // Stories follow the reader's orientation; the rest of the UI stays portrait.
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
   UiListActivity::onEnter();
@@ -113,6 +120,13 @@ void StoriesActivity::prepareForSleep() {
 
 void StoriesActivity::onExit() {
   saveProgress();  // e.g. the Home gesture while reading
+#if XTEINK_MODES
+  // Left from inside a story (the power button's next mode): coming back to Stories reopens it, as waking does.
+  if (!sleeping && storyScreen() && saved && modes::enabled()) {
+    storyProgress::markWakeResume(files[openIndex].text);
+    sleeping = true;  // keep the marker
+  }
+#endif
   if (!sleeping) storyProgress::clearWakeResume();
   UiListActivity::onExit();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);

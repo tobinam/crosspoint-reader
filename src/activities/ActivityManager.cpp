@@ -25,6 +25,9 @@
 #if FREEINK_DEVICE_X4CLASSIC
 #include "home/LauncherActivity.h"
 #endif
+#if XTEINK_MODES
+#include "modes/Modes.h"
+#endif
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "network/UsbDriveActivity.h"
@@ -378,7 +381,18 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefr
       initialMenuItem = HomeMenuItem::SETTINGS_MENU;
     }
   }
+#if XTEINK_MODES
+  // Modes: home is the reader's home (the tiles are in Settings, or chosen with "Start in the tiles view").
+  if (modes::enabled()) {
+    modes::setCurrent(modes::Mode::Reader);
+    replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem, cleanInitialRefresh));
+    return;
+  }
+#endif
 #if FREEINK_DEVICE_X4CLASSIC
+#if XTEINK_MODES
+  modes::setCurrent(modes::Mode::None);  // the tiles: the next mode is the first
+#endif
   auto launcher = makeUniqueNoThrow<LauncherActivity>(renderer, mappedInput, initialMenuItem, cleanInitialRefresh);
   if (!launcher) {
     LOG_ERR("ACT", "OOM: launcher (%u bytes)", static_cast<unsigned>(sizeof(LauncherActivity)));
@@ -389,6 +403,8 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefr
   replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInput, initialMenuItem, cleanInitialRefresh));
 #endif
 }
+bool ActivityManager::handlePowerModeSwitch() { return currentActivity && currentActivity->handlePowerModeSwitch(); }
+
 void ActivityManager::goToCrashReport() { replaceActivity(std::make_unique<CrashActivity>(renderer, mappedInput)); }
 
 void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {

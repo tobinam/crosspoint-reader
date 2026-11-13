@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <NimBLEDevice.h>
 #include <NimBLEHIDDevice.h>
+#include <esp_mac.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -54,6 +55,8 @@ Usage usageFor(const Op op) {
     case Op::Stop: return {0, 0x00B7};
     case Op::Rew: return {0, 0x00B4};
     case Op::Fwd: return {0, 0x00B3};
+    case Op::Next: return {0, 0x00B5};  // Scan Next Track
+    case Op::Prev: return {0, 0x00B6};  // Scan Previous Track
     case Op::VolUp: return {0, 0x00E9};
     case Op::VolDown: return {0, 0x00EA};
     case Op::Mute: return {0, 0x00E2};
@@ -190,10 +193,13 @@ class RxEvents : public NimBLECharacteristicCallbacks {
 ServerEvents serverEvents;
 RxEvents rxEvents;
 
-// A static random address of its own for keyboard mode, the same on every start (the TV's bond keeps it).
+// A static random address of its own for keyboard mode, the same on every start (the TV's bond keeps it). Derived
+// from the eFuse Bluetooth MAC, not NimBLEDevice::getAddress(): that returns the address of the current type, and the
+// type outlives deinit, so a second start derived a new address (11-12: a second "X4 Keyboard" on the TV).
 void keyboardAddress() {
-  uint8_t a[6];
-  std::memcpy(a, NimBLEDevice::getAddress().getVal(), 6);
+  uint8_t mac[6], a[6];
+  esp_read_mac(mac, ESP_MAC_BT);
+  for (int i = 0; i < 6; ++i) a[i] = mac[5 - i];  // NimBLE: least significant byte first
   a[0] ^= 0x5A;
   a[5] |= 0xC0;  // static random: the two top bits of the most significant byte set
   NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
@@ -201,6 +207,7 @@ void keyboardAddress() {
 }
 
 bool startRemote(NimBLEServer* server) {
+  NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_PUBLIC);  // the address bridges know, also after keyboard mode
   // Bonded LE Secure Connections, Just Works (tix has no screen): the link is encrypted by the radio; who may pair
   // is limited by the pairing window the user opens.
   NimBLEDevice::setSecurityAuth(true, false, true);
@@ -243,7 +250,7 @@ bool startKeyboard(NimBLEServer* server) {
 
 const char* opName(const Op op) {
   static const char* const NAMES[] = {"ON", "OFF", "HOME", "RETURN", "TOGGLE", "STOP", "REW", "FWD",
-                                      "VOL+", "VOL-", "MUTE", "UP", "DOWN", "LEFT", "RIGHT", "OK"};
+                                      "VOL+", "VOL-", "MUTE", "UP", "DOWN", "LEFT", "RIGHT", "OK", "NEXT", "PREV"};
   return NAMES[static_cast<int>(op)];
 }
 

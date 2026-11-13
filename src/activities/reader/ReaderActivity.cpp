@@ -1,5 +1,9 @@
 #include "ReaderActivity.h"
 
+#if XTEINK_MODES
+#include "modes/Modes.h"
+#endif
+
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
@@ -55,6 +59,9 @@ void ReaderActivity::notePageTurn(const bool forward, const bool succeeded) {
 }
 
 void ReaderActivity::onEnter() {
+#if XTEINK_MODES
+  modes::setCurrent(modes::Mode::Reader);  // the power button's next mode follows from here
+#endif
   Activity::onEnter();
 
   // Heap ledger for field crash reports: free vs largest block distinguishes a

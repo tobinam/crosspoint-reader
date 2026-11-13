@@ -1,5 +1,13 @@
 #include "HomeActivity.h"
 
+#if XTEINK_MODES
+#include "modes/Modes.h"
+#endif
+
+#if XTEINK_MODES
+#include "modes/Modes.h"
+#endif
+
 #include <Bitmap.h>
 #include <Epub.h>
 #include <FsHelpers.h>
@@ -25,6 +33,19 @@
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+
+#if FREEINK_DEVICE_X4CLASSIC
+namespace {
+// X4C modes: the reader's home is home itself, so Back resumes as upstream instead of going to the tiles.
+bool modesOn() {
+#if XTEINK_MODES
+  return modes::enabled();
+#else
+  return false;
+#endif
+}
+}  // namespace
+#endif
 
 int HomeActivity::getMenuItemCount() const {
   int count = 4;  // File Browser, Library, File transfer, Settings
@@ -230,6 +251,9 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
 }
 
 void HomeActivity::onEnter() {
+#if XTEINK_MODES
+  modes::setCurrent(modes::Mode::Reader);  // the power button's next mode follows from here
+#endif
   Activity::onEnter();
 
   hasOpdsServers = OPDS_STORE.hasServers();
@@ -312,7 +336,8 @@ void HomeActivity::freeCoverBuffer() {
 
 void HomeActivity::loop() {
 #if FREEINK_DEVICE_X4CLASSIC
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+  // Back to the tiles; with modes the reader's home is home itself (Back resumes the book, as upstream).
+  if (!modesOn() && mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     activityManager.goHome();
     return;
   }
@@ -483,7 +508,7 @@ void HomeActivity::loop() {
 
 void HomeActivity::render(RenderLock&&) {
 #if FREEINK_DEVICE_X4CLASSIC
-  const char* backLabel = tr(STR_BACK);
+  const char* backLabel = modesOn() ? (recentBooks.empty() ? "" : tr(STR_RESUME)) : tr(STR_BACK);
 #else
   const char* backLabel = recentBooks.empty() ? "" : tr(STR_RESUME);
 #endif
