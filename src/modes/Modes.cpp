@@ -11,8 +11,8 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GfxRenderer.h"
-#include "activities/RenderLock.h"
 #include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
 #include "activities/home/HomeActivity.h"
 #include "fontIds.h"
 #if XTEINK_INK_STORIES
@@ -20,6 +20,9 @@
 #endif
 #if XTEINK_TV_REMOTE
 #include "activities/home/TvRemoteActivity.h"
+#endif
+#if XTEINK_CUBE_TIMER
+#include "activities/home/CubeTimerActivity.h"
 #endif
 
 extern GfxRenderer renderer;
@@ -43,6 +46,12 @@ bool available(const Mode mode) {
 #endif
     case Mode::Tv:
 #if XTEINK_TV_REMOTE
+      return true;
+#else
+      return false;
+#endif
+    case Mode::Cube:
+#if XTEINK_CUBE_TIMER
       return true;
 #else
       return false;
@@ -78,6 +87,8 @@ const char* name(const Mode mode) {
       return tr(STR_STORIES_TITLE);
     case Mode::Tv:
       return tr(STR_TV_TITLE);
+    case Mode::Cube:
+      return tr(STR_CUBE_TITLE);
     case Mode::Settings:
       return tr(STR_SETTINGS_TITLE);
     default:
@@ -105,6 +116,12 @@ void open(const Mode mode) {
 #if XTEINK_TV_REMOTE
       if (auto tv = makeUniqueNoThrow<TvRemoteActivity>(renderer, mappedInputManager))
         activityManager.replaceActivity(std::move(tv));
+#endif
+      return;
+    case Mode::Cube:
+#if XTEINK_CUBE_TIMER
+      if (auto timer = makeUniqueNoThrow<CubeTimerActivity>(renderer, mappedInputManager))
+        activityManager.replaceActivity(std::move(timer));
 #endif
       return;
     case Mode::Settings:

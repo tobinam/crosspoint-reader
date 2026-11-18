@@ -116,11 +116,14 @@ static void handleInboxCommand(const usbInbox::Command& command) {
   char value[4 * inbox::KEY_BYTES + 24];
   for (size_t i = 0; i < count; ++i) {
     char* out = value;
-    for (const char* c = entries[i].owner; *c; ++c) out += std::snprintf(out, 3, "%02x", static_cast<unsigned char>(*c));
+    for (const char* c = entries[i].owner; *c; ++c)
+      out += std::snprintf(out, 3, "%02x", static_cast<unsigned char>(*c));
     *out++ = ',';
     for (const char* c = entries[i].id; *c; ++c) out += std::snprintf(out, 3, "%02x", static_cast<unsigned char>(*c));
     std::snprintf(out, value + sizeof(value) - out, ",%lu,%s", static_cast<unsigned long>(entries[i].revision),
-                  entries[i].deleted ? "deleted" : entries[i].unread ? "unread" : "read");
+                  entries[i].deleted  ? "deleted"
+                  : entries[i].unread ? "unread"
+                                      : "read");
     usbConsole.reply(command.id, "ITEM", value);
   }
   char total[12];
@@ -130,7 +133,6 @@ static void handleInboxCommand(const usbInbox::Command& command) {
 #endif
 #endif
 #endif
-
 
 // A wake hold must never become an in-app power-button action.  Boot may continue
 // while the button is held; swallow the one release that ends that wake gesture.
@@ -520,8 +522,8 @@ void recordBoot() {
   const time_t now = time(nullptr);
   struct tm tm{};
   localtime_r(&now, &tm);
-  std::snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02d %s\n", tm.tm_year + 1900, tm.tm_mon + 1,
-                tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, HalSystem::resetReason());
+  std::snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02d %s\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                tm.tm_hour, tm.tm_min, tm.tm_sec, HalSystem::resetReason());
   String text(keep);
   text += line;
   Storage.ensureDirectoryExists("/.crosspoint");
@@ -902,7 +904,7 @@ void setup() {
 #endif
     // Stories, slept long ago: its list (the marker is gone); recent: the marker path below reopens the page
     const bool wakeHandled = wakeMode == modes::Mode::Tv || wakeMode == modes::Mode::Settings ||
-                             (wakeMode == modes::Mode::Stories && !recentWake);
+                             wakeMode == modes::Mode::Cube || (wakeMode == modes::Mode::Stories && !recentWake);
     if (wakeHandled) modes::open(wakeMode);
 #else
     constexpr bool wakeHandled = false;

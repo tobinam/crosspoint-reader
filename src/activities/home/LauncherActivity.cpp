@@ -17,6 +17,9 @@
 #if XTEINK_INBOX
 #include "InboxActivity.h"
 #endif
+#if XTEINK_CUBE_TIMER
+#include "CubeTimerActivity.h"
+#endif
 #include "components/UITheme.h"
 #if XTEINK_MODES
 #include "modes/Modes.h"
@@ -40,9 +43,9 @@ constexpr StrId INBOX_LABEL = StrId::STR_INBOX_TITLE;
 #else
 constexpr StrId INBOX_LABEL = StrId::STR_LAUNCHER_INBOX;
 #endif
-constexpr StrId LABELS[] = {StrId::STR_LAUNCHER_READER, STORY_LABEL,
-                            StrId::STR_LAUNCHER_HOSTS,  TV_LABEL,
-                            INBOX_LABEL,                StrId::STR_SETTINGS_TITLE};
+constexpr StrId LABELS[] = {
+    StrId::STR_LAUNCHER_READER, STORY_LABEL, StrId::STR_LAUNCHER_HOSTS, TV_LABEL, INBOX_LABEL, StrId::STR_CUBE_TITLE,
+    StrId::STR_SETTINGS_TITLE};
 
 static_assert(sizeof(LABELS) / sizeof(LABELS[0]) == launcher::MODE_COUNT);
 
@@ -55,6 +58,9 @@ bool available(launcher::Mode mode) {
 #endif
 #if XTEINK_INBOX
   if (mode == launcher::Mode::Inbox) return true;
+#endif
+#if XTEINK_CUBE_TIMER
+  if (mode == launcher::Mode::Cube) return true;
 #endif
   return mode == launcher::Mode::Reader || mode == launcher::Mode::Settings;
 }
@@ -134,6 +140,19 @@ void LauncherActivity::activate(launcher::Mode mode) {
       }
       app.clearTapFlash();
       activityManager.replaceActivity(std::move(inboxScreen));
+      return;
+    }
+#endif
+    case launcher::Mode::Cube:
+#if XTEINK_CUBE_TIMER
+    {
+      auto timer = makeUniqueNoThrow<CubeTimerActivity>(renderer, mappedInput);
+      if (!timer) {
+        LOG_ERR("HOME", "OOM: cube timer");
+        return;
+      }
+      app.clearTapFlash();
+      activityManager.replaceActivity(std::move(timer));
       return;
     }
 #endif

@@ -1,0 +1,5 @@
+add_executable(CubeTimerTest CubeTimerTest.cpp ${REPO_ROOT}/src/cube/CubeTimer.cpp ${REPO_ROOT}/src/cube/CubeLog.cpp)
+target_compile_definitions(CubeTimerTest PRIVATE CUBE_HOST_TEST=1)
+target_include_directories(CubeTimerTest PRIVATE ../library_builder/stubs ${REPO_ROOT}/src)
+target_link_libraries(CubeTimerTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(CubeTimerTest)

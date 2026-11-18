@@ -34,10 +34,15 @@ TEST(LauncherLayout, FitsPortraitAndLandscapeWithInsets) {
                     other.bottom() <= rect.y);
       }
     }
-    for (int row = 0; row < 3; ++row) {
-      EXPECT_EQ(tiles[row * 2].y, tiles[row * 2 + 1].y);
-      EXPECT_LT(tiles[row * 2].x, tiles[row * 2 + 1].x);
-      if (row > 0) EXPECT_GT(tiles[row * 2].y, tiles[(row - 1) * 2].y);
+    for (int i = 2; i < launcher::MODE_COUNT; i += 2) EXPECT_GT(tiles[i].y, tiles[i - 2].y);
+    for (int i = 1; i < launcher::MODE_COUNT; i += 2) {
+      EXPECT_EQ(tiles[i - 1].y, tiles[i].y);
+      EXPECT_LT(tiles[i - 1].x, tiles[i].x);
+    }
+    if (launcher::MODE_COUNT % 2) {
+      const auto last = tiles[launcher::MODE_COUNT - 1];
+      EXPECT_EQ(last.x, tiles[0].x);
+      EXPECT_EQ(last.right(), tiles[1].right());
     }
   }
 }

@@ -486,3 +486,24 @@ the page). A page arrives in any screen and an open Inbox list reloads. Host sid
 (`XT1 PAGE`) stays as it was: shown at once, not stored.
 
 Not yet: QR pages, deleting from the host, receiving over Bluetooth or WiFi. Tests: `test/inbox` (host).
+
+## Cube timer
+
+The Cube timer (`XTEINK_CUBE_TIMER`, x4c only; a tile and a power-button mode after Settings) times 3x3 solves for two
+players. The device lies landscape between them; each half of the screen is upright for the player sitting at it.
+Player A owns the Back/Confirm key, player B the Left/Right key. Hold your outer key (A: Back, B: Right): the scramble
+gives way to a large clock, after 0.4 s the half turns black; release to start, press either half of your key to stop.
+
+A round is one scramble (random-move, 20 moves, the same for both). It ends when one or both solved and nobody is
+arming or solving: both halves show the round's times large, the winner's half flashes three times and keeps a frame,
+the other shows how far behind it was ("New best" where it applies). Then the next scramble comes by itself, or, with
+the toggle off, after any bottom key (that press does not arm). The upper side key toggles this (kept in
+`/cube/auto-next`); the lower one is free. Holding either side key exits.
+
+The four bottom keys are sampled every 1 ms by an esp_timer (`CubeTimerActivity::sample`), off the main loop and the
+display; a change counts after 3 equal samples and is dated by its first sample, so start and stop have the same
+latency and the result is exact to about 1 ms. While running the time is shown in half seconds, the result in
+milliseconds; the scramble screen shows best (all solves on the card), Ao5 and solves (this session).
+
+Every solve is appended to `/cube/solves.csv`: `<unix time or 0>,<session>,<A|B>,<round>,<ms>,<scramble>` (the file
+sai will collect over USB; not built yet). Not yet: inspection, +2/DNF. Tests: `test/cube` (host).

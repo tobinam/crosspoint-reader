@@ -1,14 +1,15 @@
 #pragma once
 
-// X4C modes (XTEINK_MODES): Reader, Stories, TV, Settings, switched by the power button's long press (or short
-// press, swapped in Settings: "Power button and modes"). Waking reopens the mode slept in, and within the
-// "Wake into the same screen" time the very screen. The tiles view stays, reached from Settings.
+// X4C modes (XTEINK_MODES): Reader, Stories, TV, Settings, Cube timer, switched by the power button's long press (or
+// short press, swapped in Settings: "Power button and modes"). Waking reopens the mode slept in, and within the "Wake
+// into the same screen" time the very screen. The tiles view stays, reached from Settings.
 
 #include <cstdint>
 
 namespace modes {
 
-enum class Mode : uint8_t { Reader = 0, Stories, Tv, Settings, Count, None = 0xFF };
+// Values are persisted (APP_STATE.lastMode): append only.
+enum class Mode : uint8_t { Reader = 0, Stories, Tv, Settings, Cube, Count, None = 0xFF };
 
 // Power button and modes in use (not Classic) and not "Start in the tiles view".
 bool enabled();
