@@ -88,7 +88,7 @@ or per-story cache.
 ## Upload over USB (recommended)
 
 Any Linux host can push stories over the USB cable; no Wi-Fi, card reader or
-taps on the device. The host tooling lives in the separate `inkstor` repo:
+taps on the device. The host tooling lives in `inkstor/` of the `sai` repo:
 
 ```sh
 npm run setup:x4c   # once per host: builds the pinned InkCPP compiler
@@ -119,7 +119,11 @@ Errors: `XT1 ERROR <id> STORAGE|NOUPLOAD|SIZE|WRITE|CRC|RENAME`, or
 `XT1 BUSY <id> 1`. Rules:
 
 - Name: lowercase `[a-z0-9._-]`, ending `.bin`, not starting with `.`, at most
-  94 bytes. Size: 1 to 262,144 bytes. CRC: standard CRC-32 (zlib).
+  94 bytes; saved as `/stories/<name>`. The names `sleep-overlay.png` and
+  `sleep-overlay.bmp` are also accepted and saved in the SD root, where the
+  Transparent sleep screen reads them (`node x4c/deploy.js sleep-overlay.png`).
+  LIST and DELETE cover stories only. Size: 1 to 262,144 bytes. CRC: standard
+  CRC-32 (zlib).
 - Payload: at most 768 bytes per DATA line. The ACK always reports the
   committed offset; a DATA line with a different offset is not written and only
   re-ACKed, so the host can resend safely after a lost reply.

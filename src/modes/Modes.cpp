@@ -1,6 +1,7 @@
 #include "Modes.h"
 
 #if XTEINK_MODES
+#include <Arduino.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -32,6 +33,10 @@ namespace modes {
 namespace {
 Mode currentMode = Mode::None;
 bool recentWake = false;
+// The mode picked by the power button, opened once the presses pause for CHOOSE_MS.
+constexpr unsigned long CHOOSE_MS = 1000;
+Mode chosenMode = Mode::None;
+unsigned long chosenAtMs = 0;
 
 bool available(const Mode mode) {
   switch (mode) {
@@ -132,23 +137,37 @@ void open(const Mode mode) {
   }
 }
 
-void next() {
-  int i = currentMode == Mode::None ? -1 : static_cast<int>(currentMode);
-  Mode to = Mode::Reader;
-  for (int step = 0; step < static_cast<int>(Mode::Count); ++step) {
-    i = (i + 1) % static_cast<int>(Mode::Count);
-    if (available(static_cast<Mode>(i))) {
-      to = static_cast<Mode>(i);
-      break;
+void next(const uint32_t steps) {
+  Mode to = chosenMode != Mode::None ? chosenMode : currentMode;
+  for (uint32_t n = 0; n < steps; ++n) {
+    int i = to == Mode::None ? -1 : static_cast<int>(to);
+    to = Mode::Reader;
+    for (int step = 0; step < static_cast<int>(Mode::Count); ++step) {
+      i = (i + 1) % static_cast<int>(Mode::Count);
+      if (available(static_cast<Mode>(i))) {
+        to = static_cast<Mode>(i);
+        break;
+      }
     }
   }
-  LOG_INF("MODE", "next: %s", name(to));
+  LOG_INF("MODE", "next (%lu): %s", static_cast<unsigned long>(steps), name(to));
   announce(to);
-  open(to);
+  chosenMode = to;
+  chosenAtMs = millis();
+}
+
+bool choosing() { return chosenMode != Mode::None; }
+
+bool update() {
+  if (!choosing()) return false;
+  if (millis() - chosenAtMs < CHOOSE_MS) return true;
+  open(std::exchange(chosenMode, Mode::None));
+  return false;
 }
 
 void noteSleep() {
-  APP_STATE.lastMode = static_cast<uint8_t>(currentMode);
+  // Sleeping while a mode is shown (its name is the sleep frame): wake into that mode.
+  APP_STATE.lastMode = static_cast<uint8_t>(chosenMode != Mode::None ? chosenMode : currentMode);
   APP_STATE.lastSleepAt = static_cast<uint32_t>(time(nullptr));
 }
 

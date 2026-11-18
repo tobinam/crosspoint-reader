@@ -47,6 +47,7 @@ class HalGPIO {
   bool usbStateChanged = false;
   uint8_t previousCapacitivePageButtons = 0;
   bool capacitivePagePressed = false;
+  int8_t powerClickPin = -1;  // pin with the click-count interrupt attached, or -1
 
  public:
   enum class DeviceType : uint8_t { X4, X3 };
@@ -120,6 +121,15 @@ class HalGPIO {
   bool wasSwipe(float& nxStart, float& nyStart, float& nxEnd, float& nyEnd) const;
   bool wasTouchActivity() const;
   void setSharedConfirmPowerShortPressEmitsPower(bool enabled);
+
+  // Counts power-button clicks (released within maxHoldMs) in an interrupt, so clicks during a
+  // blocking display refresh are not lost. Off again at deep sleep. GPIO power buttons only.
+  void beginPowerClickCount(uint32_t maxHoldMs);
+  // Clicks since the last call.
+  uint32_t takePowerClicks();
+  // From the same edges: how long the current press is held (0 if up or not counting) and its
+  // number, so a press made during a display refresh is never merged with the one before.
+  uint32_t powerHeldMs(uint32_t& pressId) const;
 
   // Verify that the physical power button remains held through input debounce.
   // Returns true if verification succeeded, false if device should return to sleep.

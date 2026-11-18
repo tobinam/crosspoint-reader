@@ -534,6 +534,10 @@ void recordBoot() {
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+#if XTEINK_MODES
+  // A shown mode name replaced the reader page: wake into that mode, not the book.
+  if (modes::choosing()) APP_STATE.lastSleepFromReader = false;
+#endif
 
   // Sleep may end in a power-off (battery death, latch); persist the clock
   // floor now so a later cold boot resumes from it.
@@ -778,18 +782,23 @@ void setup() {
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
 
   switch (wakeupReason) {
-    case HalGPIO::WakeupReason::PowerButton:
-      // With Short Power Button Press = Sleep, a single click wakes on any
-      // device; otherwise the button must still be held (ghost-wake debounce).
+    case HalGPIO::WakeupReason::PowerButton: {
+      // A single click wakes when a short press sleeps (Short Power Button
+      // Press = Sleep) or with any X4C mode setting; otherwise the button must
+      // still be held (ghost-wake debounce).
       // Picco: plugging in USB pulses the wake line; power on, as stock does.
-      if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP &&
-          !(FREEINK_DEVICE_PICCO && gpio.isUsbConnected())) {
+      bool clickWakes = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP;
+#if XTEINK_MODES
+      clickWakes = clickWakes || SETTINGS.powerModes != CrossPointSettings::PWR_MODES_CLASSIC;
+#endif
+      if (!wakeHoldVerified && !clickWakes && !(FREEINK_DEVICE_PICCO && gpio.isUsbConnected())) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
         Storage.prepareForDeepSleep();
         powerManager.startDeepSleep(gpio);
       }
       wakePowerReleasePending = true;
       break;
+    }
     case HalGPIO::WakeupReason::AfterUSBPower:
       // Most devices return to sleep after a USB-powered cold boot.
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
@@ -1114,40 +1123,39 @@ void loop() {
 
 #if XTEINK_MODES
   // Power button and modes: a short press and a long press (MODE_HOLD_MS) each sleep or switch to the next mode,
-  // per setting. The long press fires while still held, the short one on release; an activity may take the
-  // switch for itself (Activity::handlePowerModeSwitch).
+  // per setting. The long press fires while still held, short clicks after release (counted, so a quick triple
+  // click moves three modes); an activity may take the switch for itself (Activity::handlePowerModeSwitch).
   if (SETTINGS.powerModes != CrossPointSettings::PWR_MODES_CLASSIC) {
     // The modes own the short press: a "Short click" action (page turn, refresh, ...) would fire as well
     if (SETTINGS.shortPwrBtn != CrossPointSettings::IGNORE) SETTINGS.shortPwrBtn = CrossPointSettings::IGNORE;
     constexpr unsigned long MODE_HOLD_MS = 600;
-    static bool powerHeld = false;
-    static bool longDone = false;
-    const bool pressed = gpio.isPressed(HalGPIO::BTN_POWER);
-    const auto act = [](const bool sleep) {
+    // Short presses are counted by an interrupt: fast clicks during a display refresh still count.
+    gpio.beginPowerClickCount(MODE_HOLD_MS);
+    const uint32_t clicks = gpio.takePowerClicks();
+    uint32_t pressId = 0;
+    const uint32_t heldMs = gpio.powerHeldMs(pressId);
+    static uint32_t longDoneId = 0;
+    const auto act = [](const bool sleep, uint32_t steps) {
       if (sleep) {
         enterDeepSleep();
-      } else if (!activityManager.handlePowerModeSwitch()) {
-        modes::next();
+        return;
       }
+      if (!modes::choosing() && activityManager.handlePowerModeSwitch()) --steps;
+      if (steps) modes::next(steps);
     };
-    if (!powerReleasedSinceWake || millis() < allowSleepAt) {
-      powerHeld = false;
-    } else if (pressed && !powerHeld) {
-      powerHeld = true;
-      longDone = false;
-    } else if (pressed && !longDone && gpio.getPowerButtonHeldTime() >= MODE_HOLD_MS) {
-      if (gpio.isPressed(HalGPIO::BTN_DOWN)) return;  // the screenshot combination
-      longDone = true;
-      act(modes::longPressSleeps());
-      return;
-    } else if (!pressed && powerHeld) {
-      powerHeld = false;
-      if (!longDone) {
-        act(modes::shortPressSleeps());
+    if (powerReleasedSinceWake && millis() >= allowSleepAt) {  // else the clicks taken above are dropped
+      if (heldMs >= MODE_HOLD_MS && pressId != longDoneId) {
+        if (gpio.isPressed(HalGPIO::BTN_DOWN)) return;  // the screenshot combination
+        longDoneId = pressId;
+        act(modes::longPressSleeps(), 1);
+        return;
+      }
+      if (clicks) {
+        act(modes::shortPressSleeps(), clicks);
         return;
       }
     }
-    if (pressed || powerHeld) return;  // never the classic hold-to-sleep below
+    if (heldMs || gpio.isPressed(HalGPIO::BTN_POWER)) return;  // never the classic hold-to-sleep below
   }
 #endif
 
@@ -1277,7 +1285,12 @@ void loop() {
   storyUpload.expire(millis());
 #endif
 #endif
+#if XTEINK_MODES
+  // While a mode is being chosen, its name stays on screen and the old activity is paused.
+  if (!modes::update()) activityManager.loop();
+#else
   activityManager.loop();
+#endif
   const unsigned long activityDuration = millis() - activityStartTime;
 
   const unsigned long loopDuration = millis() - loopStartTime;

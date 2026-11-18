@@ -103,8 +103,7 @@ void StoryUploadReceiver::handle(const usbFile::Command& command, HalUsbConsole&
       console.reply(id, "ACK", offset);
       return;
     }
-    if (command.dataLength > size - written ||
-        file.write(command.data, command.dataLength) != command.dataLength) {
+    if (command.dataLength > size - written || file.write(command.data, command.dataLength) != command.dataLength) {
       console.reply(id, "ERROR", command.dataLength > size - written ? "SIZE" : "WRITE");
       abort();
       return;
@@ -124,15 +123,15 @@ void StoryUploadReceiver::handle(const usbFile::Command& command, HalUsbConsole&
     abort();
     return;
   }
-  char path[112];
-  std::snprintf(path, sizeof(path), "/stories/%s", name);
-  if ((Storage.exists(path) && !Storage.remove(path)) || !Storage.rename(TEMP, path)) {
+  char path[usbFile::PATH_BYTES];
+  if (!usbFile::uploadPath(name, path, sizeof(path)) || (Storage.exists(path) && !Storage.remove(path)) ||
+      !Storage.rename(TEMP, path)) {
     console.reply(doneId, "ERROR", "RENAME");
     abort();
     return;
   }
   id = 0;
-  LOG_INF("USB", "Story upload saved %s (%lu bytes)", path, static_cast<unsigned long>(size));
+  LOG_INF("USB", "Upload saved %s (%lu bytes)", path, static_cast<unsigned long>(size));
   console.reply(doneId, "DONE", "0");
 }
 #endif

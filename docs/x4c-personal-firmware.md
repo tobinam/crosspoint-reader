@@ -302,7 +302,7 @@ review and full hardware acceptance remain incomplete.
 
 The human chose USB upload over Wi-Fi/manual copying so stories can be pushed
 from whichever Linux host the dock is attached to (dex now, ztx later). The host
-side is in the `inkstor` repo (`npm run setup:x4c` once per host, then
+side is in `inkstor/` of the `sai` repo (`npm run setup:x4c` once per host, then
 `npm run deploy`); it has no native modules and no host-specific paths.
 Protocol, limits and file locations: [stories/README.md](../stories/README.md#upload-over-usb-recommended).
 

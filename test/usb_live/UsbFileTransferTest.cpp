@@ -60,6 +60,26 @@ TEST(UsbFileTransfer, Crc32MatchesZlib) {
             0xcbf43926u);
 }
 
+TEST(UsbFileTransfer, RoutesUploadPaths) {
+  char path[usbFile::PATH_BYTES];
+  ASSERT_TRUE(usbFile::uploadPath("low-tide.bin", path, sizeof(path)));
+  EXPECT_STREQ(path, "/stories/low-tide.bin");
+  ASSERT_TRUE(usbFile::uploadPath("sleep-overlay.png", path, sizeof(path)));
+  EXPECT_STREQ(path, "/sleep-overlay.png");
+  ASSERT_TRUE(usbFile::uploadPath("sleep-overlay.bmp", path, sizeof(path)));
+  EXPECT_STREQ(path, "/sleep-overlay.bmp");
+  EXPECT_FALSE(usbFile::uploadPath("other.png", path, sizeof(path)));
+  EXPECT_FALSE(usbFile::uploadPath("sleep-overlay.png", path, 18));  // no room for NUL
+
+  Command c;
+  // "sleep-overlay.png"
+  ASSERT_TRUE(usbFile::parse("XT1 FILE BEGIN 2 736c6565702d6f7665726c61792e706e67 1970 00000000", c));
+  EXPECT_STREQ(c.name, "sleep-overlay.png");
+  EXPECT_FALSE(usbFile::parse("XT1 FILE BEGIN 2 782e706e67 10 00000000", c));  // x.png
+  // Delete stays story-only.
+  EXPECT_FALSE(usbFile::parse("XT1 FILE DELETE 2 736c6565702d6f7665726c61792e706e67", c));
+}
+
 TEST(UsbFileTransfer, ParsesListAndDelete) {
   Command c;
   ASSERT_TRUE(usbFile::parse("XT1 FILE LIST 9", c));

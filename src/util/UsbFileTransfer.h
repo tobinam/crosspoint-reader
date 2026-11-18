@@ -4,14 +4,15 @@
 #include <cstdint>
 #include <cstring>
 
-// Bounded line protocol for pushing story files over the USB console.
+// Bounded line protocol for pushing story files (and the sleep overlay) over the USB console.
 //   XT1 FILE BEGIN <id> <name-hex> <size> <crc32-hex8>
 //   XT1 FILE DATA <id> <offset> <payload-hex>
 //   XT1 FILE END <id>
-//   XT1 FILE LIST <id>               -> XT1 ITEM <id> <name-hex>,<size>,<crc32-hex8> per story, then XT1 DONE <id> <count>
-//   XT1 FILE DELETE <id> <name-hex>  -> XT1 DONE <id> 0 (also drops the story's save and play count)
+//   XT1 FILE LIST <id>               -> XT1 ITEM <id> <name-hex>,<size>,<crc32-hex8> per story, then XT1 DONE <id>
+//   <count> XT1 FILE DELETE <id> <name-hex>  -> XT1 DONE <id> 0 (also drops the story's save and play count)
 namespace usbFile {
 constexpr size_t NAME_BYTES = 94;
+constexpr size_t PATH_BYTES = 112;  // "/stories/" + name + NUL fits
 constexpr size_t CHUNK_BYTES = 768;
 constexpr uint32_t MAX_FILE_BYTES = 256 * 1024;
 
@@ -45,6 +46,23 @@ inline bool validName(const char* name) {
     const char c = name[i];
     if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.')) return false;
   }
+  return true;
+}
+
+// Fixed SD-root files an upload may replace, besides stories.
+inline bool rootFile(const char* name) {
+  return !std::strcmp(name, "sleep-overlay.png") || !std::strcmp(name, "sleep-overlay.bmp");
+}
+
+// Where an uploaded file goes: stories to /stories, root files to /. False for any other name.
+inline bool uploadPath(const char* name, char* path, size_t capacity) {
+  const char* dir = validName(name) ? "/stories/" : rootFile(name) ? "/" : nullptr;
+  if (!dir) return false;
+  const size_t dirLength = std::strlen(dir);
+  const size_t nameLength = std::strlen(name);
+  if (dirLength + nameLength >= capacity) return false;
+  std::memcpy(path, dir, dirLength);
+  std::memcpy(path + dirLength, name, nameLength + 1);
   return true;
 }
 
@@ -125,7 +143,8 @@ inline bool parse(const char* line, Command& command) {
       return false;
     std::memcpy(command.name, name, nameLength);
     command.name[nameLength] = 0;
-    if (!validName(command.name)) return false;
+    char path[PATH_BYTES];
+    if (!uploadPath(command.name, path, sizeof(path))) return false;
     command.crc = (uint32_t(crc[0]) << 24) | (uint32_t(crc[1]) << 16) | (uint32_t(crc[2]) << 8) | crc[3];
   } else {
     if (!literal(p, " ") || !number(p, command.offset, true) || !literal(p, " ")) return false;

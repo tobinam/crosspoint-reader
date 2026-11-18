@@ -6,6 +6,8 @@
 #include <SPI.h>
 #include <XteinkDetect.h>
 #include <esp_sleep.h>
+#include <esp_timer.h>
+#include <hal/gpio_ll.h>
 
 #if FREEINK_DEVICE_X4CLASSIC && ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT
 #include <driver/usb_serial_jtag.h>
@@ -139,7 +141,72 @@ bool HalGPIO::wasUsbStateChanged() const { return usbStateChanged; }
 bool HalGPIO::isPressed(uint8_t buttonIndex) const { return inputMgr.isPressed(buttonIndex); }
 
 void HalGPIO::prepareForDeepSleep() {
+  if (powerClickPin >= 0) {
+    detachInterrupt(digitalPinToInterrupt(powerClickPin));
+    powerClickPin = -1;
+  }
   if (!inputMgr.prepareForDeepSleep()) LOG_ERR("GPIO", "Failed to put touch controller to sleep");
+}
+
+namespace {
+constexpr uint32_t POWER_CLICK_MIN_MS = 20;  // shorter is contact bounce
+volatile uint32_t powerClicks = 0;
+volatile uint32_t powerDownAt = 0;
+volatile bool powerDown = false;
+volatile uint32_t powerPressId = 0;  // +1 per press edge
+uint32_t powerClickMaxMs = 0;
+int powerClickActiveLevel = LOW;
+
+void IRAM_ATTR onPowerEdge(void* arg) {
+  // Flash-safe in an IRAM ISR: inline register read and esp_timer.
+  const auto pin = static_cast<uint32_t>(reinterpret_cast<intptr_t>(arg));
+  const bool down = static_cast<int>(gpio_ll_get_level(&GPIO, pin)) == powerClickActiveLevel;
+  const auto now = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+  if (down && !powerDown) {
+    powerDownAt = now;
+    powerPressId = powerPressId + 1;
+  } else if (!down && powerDown) {
+    const uint32_t held = now - powerDownAt;
+    if (held >= POWER_CLICK_MIN_MS && held < powerClickMaxMs) powerClicks = powerClicks + 1;
+  }
+  powerDown = down;
+}
+}  // namespace
+
+void HalGPIO::beginPowerClickCount(const uint32_t maxHoldMs) {
+  const int8_t pin = BoardConfig::ACTIVE.input.power;
+  if (powerClickPin >= 0 || pin < 0 || BoardConfig::ACTIVE.inputStyle != BoardConfig::InputStyle::DigitalButtons) {
+    return;
+  }
+  powerClickMaxMs = maxHoldMs;
+  powerClickActiveLevel = BoardConfig::ACTIVE.input.powerActiveHigh ? HIGH : LOW;
+  powerDown = digitalRead(pin) == powerClickActiveLevel;
+  powerDownAt = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+  powerClicks = 0;
+  attachInterruptArg(digitalPinToInterrupt(pin), onPowerEdge, reinterpret_cast<void*>(static_cast<intptr_t>(pin)),
+                     CHANGE);
+  powerClickPin = pin;
+}
+
+uint32_t HalGPIO::powerHeldMs(uint32_t& pressId) const {
+  if (powerClickPin < 0) {
+    pressId = 0;
+    return 0;
+  }
+  noInterrupts();
+  const bool down = powerDown;
+  const uint32_t at = powerDownAt;
+  pressId = powerPressId;
+  interrupts();
+  return down ? static_cast<uint32_t>(esp_timer_get_time() / 1000) - at : 0;
+}
+
+uint32_t HalGPIO::takePowerClicks() {
+  noInterrupts();
+  const uint32_t clicks = powerClicks;
+  powerClicks = 0;
+  interrupts();
+  return clicks;
 }
 
 bool HalGPIO::wasPressed(uint8_t buttonIndex) const { return inputMgr.wasPressed(buttonIndex); }

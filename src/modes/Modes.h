@@ -21,8 +21,14 @@ Mode current();
 void setCurrent(Mode mode);  // a mode's entry point records itself (tiles, switch, wake)
 const char* name(Mode mode);
 
-// Shows the next mode's name large, then opens it.
-void next();
+// Steps that many modes on (from the shown one while choosing) and shows its name large. The
+// shown mode opens once the presses pause (update()).
+void next(uint32_t steps = 1);
+// A mode is shown but not opened yet.
+bool choosing();
+// Per main loop: opens the shown mode after the pause. True while still choosing, the current
+// activity is then not run.
+bool update();
 // Opens a mode's main screen (Reader: the open book if any, else the reader home).
 void open(Mode mode);
 

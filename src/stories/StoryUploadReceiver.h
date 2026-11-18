@@ -8,7 +8,7 @@
 
 class HalUsbConsole;
 
-// Writes one pushed story at a time to /stories via a temp file; main-loop owned.
+// Writes one pushed file at a time (stories, sleep overlay) via a temp file in /stories; main-loop owned.
 class StoryUploadReceiver {
   HalFile file;
   uint32_t id = 0;
